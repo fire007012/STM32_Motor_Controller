@@ -48,6 +48,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/can_protocol.c
     Core/Src/modbus_can.c
     Core/Src/motor_control.c
+   
 )
 
 # Add include paths

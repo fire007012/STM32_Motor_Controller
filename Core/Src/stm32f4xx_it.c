@@ -59,8 +59,6 @@
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
-extern CAN_HandleTypeDef hcan1;
-extern CAN_HandleTypeDef hcan2;
 
 /* USER CODE BEGIN EV */
 
@@ -185,22 +183,6 @@ void SysTick_Handler(void)
 /* For the available peripheral interrupt handler names,                      */
 /* please refer to the startup file (startup_stm32f4xx.s).                    */
 /******************************************************************************/
-
-/**
-  * @brief This function handles CAN1 RX0 interrupts.
-  */
-void CAN1_RX0_IRQHandler(void)
-{
-  HAL_CAN_IRQHandler(&hcan1);
-}
-
-/**
-  * @brief This function handles CAN2 RX0 interrupts.
-  */
-void CAN2_RX0_IRQHandler(void)
-{
-  HAL_CAN_IRQHandler(&hcan2);
-}
 
 /* USER CODE BEGIN 1 */
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
