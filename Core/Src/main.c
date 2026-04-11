@@ -23,8 +23,9 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "can_protocol.h"
-#include "modbus_can.h"
+#include "zdt_can_driver.h"
 #include "motor_control.h"
+#include "zdt_status.h"
 
 /* USER CODE END Includes */
 
@@ -97,6 +98,7 @@ static void CAN_Filter_Config(void);
 static void CAN1_SendStatus(uint8_t motor_idx);
 static void CAN1_SendAck(uint16_t seq, uint8_t cmd, uint8_t result);
 static void CAN1_SendStats(void);
+static void CAN1_SendEmergencyEvent(uint8_t motor_idx, uint8_t status_flags, int32_t speed_rpm);
 
 /* USER CODE END PFP */
 
@@ -254,7 +256,7 @@ static void CAN1_SendStats(void)
   uint32_t txMailbox;
   Motor_CommStats_t stats;
 
-  motor_set_timeout_drop_count(modbus_get_timeout_drop_count());
+  motor_set_timeout_drop_count(zdt_can_driver_get_timeout_drop_count());
   motor_get_comm_stats(&stats);
 
   txHeader.StdId = ROS_CAN_STATS_ID;
@@ -282,6 +284,31 @@ static void CAN1_SendStats(void)
   txData[5] = (uint8_t)(stats.last_seq >> 8);
   txData[6] = (uint8_t)(stats.last_seq & 0xFFU);
   txData[7] = stats.last_result;
+  (void)HAL_CAN_AddTxMessage(&hcan1, &txHeader, txData, &txMailbox);
+}
+
+static void CAN1_SendEmergencyEvent(uint8_t motor_idx, uint8_t status_flags, int32_t speed_rpm)
+{
+  CAN_TxHeaderTypeDef txHeader = {0};
+  uint8_t txData[8] = {0};
+  uint32_t txMailbox;
+
+  txData[0] = 0x06U;
+  txData[1] = motor_idx;
+  txData[2] = status_flags;
+  txData[3] = (uint8_t)(speed_rpm & 0xFF);
+  txData[4] = (uint8_t)((uint32_t)speed_rpm >> 8);
+  txData[5] = (uint8_t)((uint32_t)speed_rpm >> 16);
+  txData[6] = (uint8_t)((uint32_t)speed_rpm >> 24);
+  txData[7] = 0U;
+
+  txHeader.StdId = ROS_CAN_STATUS_ID;
+  txHeader.ExtId = 0U;
+  txHeader.IDE = CAN_ID_STD;
+  txHeader.RTR = CAN_RTR_DATA;
+  txHeader.DLC = 8U;
+  txHeader.TransmitGlobalTime = DISABLE;
+
   (void)HAL_CAN_AddTxMessage(&hcan1, &txHeader, txData, &txMailbox);
 }
 
@@ -358,7 +385,7 @@ int main(void)
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
-  modbus_can_init(&hcan2);
+  zdt_can_driver_init(&hcan2);
   motor_control_init();
   /* USER CODE END RTOS_QUEUES */
 
@@ -574,7 +601,7 @@ void StartMotorControlTask(void *argument)
       cmd_result = motor_apply_command(&cmd);
       CAN1_SendAck(cmd.seq, cmd.cmd, (cmd_result == HAL_OK) ? 0U : 1U);
     }
-    modbus_timeout_poll();
+    zdt_can_driver_timeout_poll();
     osDelay(10U);
   }
 }
@@ -590,6 +617,7 @@ void StartStatusTask(void *argument)
 {
   uint8_t i;
   uint8_t stats_div = 0U;
+  zdt_estop_event_t estop_event;
 
   for(;;)
   {
@@ -604,6 +632,12 @@ void StartStatusTask(void *argument)
     {
       stats_div = 0U;
       CAN1_SendStats();
+    }
+
+    if (zdt_status_take_estop_event(&estop_event) == 1U)
+    {
+      motor_stop_all();
+      CAN1_SendEmergencyEvent(estop_event.motor_idx, estop_event.status_flags, estop_event.speed_rpm);
     }
 
     osDelay(50U);

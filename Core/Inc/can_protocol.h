@@ -21,10 +21,14 @@ extern "C" {
  *   0x05 trigger sync start, value ignored
  *   0x06 set response policy, param0=1 wait-ack / 0 fire-and-forget
  *   0x07 set report mask, value[7:0]=bitmask(1 basic,2 pos,4 vel,8 target)
+ *   0x08 set address map, value byte0..3 = motor0..3 slave address
  * byte1: motor index 0..3 or 0xFF for all motors
  * byte2..5: value (int32 little-endian)
  * byte6: param0
  * byte7: param1
+ *
+ * Status frame note:
+ *   type 0x03 current velocity and type 0x04 target velocity use 0.1 RPM units.
  */
 
 void CAN1_RxCallback(CAN_RxHeaderTypeDef rxHeader, uint8_t rxData[8]);

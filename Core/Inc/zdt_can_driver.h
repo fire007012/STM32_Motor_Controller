@@ -1,5 +1,5 @@
-#ifndef __MODBUS_CAN_H
-#define __MODBUS_CAN_H
+#ifndef __ZDT_CAN_DRIVER_H
+#define __ZDT_CAN_DRIVER_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -34,7 +34,7 @@ typedef enum {
 	ZDT_RESPONSE_FIRE_AND_FORGET = 1
 } zdt_response_policy_t;
 
-void modbus_can_init(CAN_HandleTypeDef *hcan_bus);
+void zdt_can_driver_init(CAN_HandleTypeDef *hcan_bus);
 
 HAL_StatusTypeDef zdt_motor_enable(uint8_t slave, uint8_t enable, uint8_t sync_flag);
 HAL_StatusTypeDef zdt_motor_set_speed(uint8_t slave, int32_t speed_rpm, uint8_t accel_level, uint8_t sync_flag);
@@ -55,12 +55,12 @@ HAL_StatusTypeDef zdt_read_realtime_speed(uint8_t slave, zdt_speed_cb_t callback
 HAL_StatusTypeDef zdt_read_realtime_position(uint8_t slave, zdt_position_cb_t callback);
 HAL_StatusTypeDef zdt_read_motor_status(uint8_t slave, zdt_status_cb_t callback);
 
-void modbus_process_response(CAN_RxHeaderTypeDef rxHeader, uint8_t rxData[8]);
-void modbus_timeout_poll(void);
-uint32_t modbus_get_timeout_drop_count(void);
+void zdt_can_driver_process_response(CAN_RxHeaderTypeDef rxHeader, uint8_t rxData[8]);
+void zdt_can_driver_timeout_poll(void);
+uint32_t zdt_can_driver_get_timeout_drop_count(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* __MODBUS_CAN_H */
+#endif /* __ZDT_CAN_DRIVER_H */

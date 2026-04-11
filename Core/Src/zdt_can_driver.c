@@ -1,4 +1,4 @@
-#include "modbus_can.h"
+#include "zdt_can_driver.h"
 
 #include <string.h>
 
@@ -21,16 +21,29 @@ typedef struct {
     zdt_speed_cb_t speed_cb;
     zdt_position_cb_t position_cb;
     zdt_status_cb_t status_cb;
-} Modbus_Pending_t;
+} ZDT_PendingReq_t;
 
-static CAN_HandleTypeDef *modbus_can = NULL;
-static Modbus_Pending_t pending_req = {0};
+static CAN_HandleTypeDef *zdt_can = NULL;
+static ZDT_PendingReq_t pending_req = {0};
+static ZDT_PendingReq_t pending_queue[4] = {0};
+static uint8_t pending_head = 0U;
+static uint8_t pending_tail = 0U;
+static uint8_t pending_count = 0U;
+
 static zdt_response_policy_t response_policy = ZDT_RESPONSE_WAIT_ACK;
 static uint32_t timeout_drop_count = 0U;
 
 static void clear_pending(void)
 {
     (void)memset(&pending_req, 0, sizeof(pending_req));
+}
+
+static void pending_queue_reset(void)
+{
+    (void)memset(pending_queue, 0, sizeof(pending_queue));
+    pending_head = 0U;
+    pending_tail = 0U;
+    pending_count = 0U;
 }
 
 static HAL_StatusTypeDef zdt_send_frames(uint8_t slave, const uint8_t *payload, uint8_t payload_len)
@@ -42,7 +55,7 @@ static HAL_StatusTypeDef zdt_send_frames(uint8_t slave, const uint8_t *payload, 
     uint8_t sent;
     uint32_t tx_mailbox;
 
-    if ((modbus_can == NULL) || (payload == NULL) || (payload_len == 0U)) {
+    if ((zdt_can == NULL) || (payload == NULL) || (payload_len == 0U)) {
         return HAL_ERROR;
     }
 
@@ -62,7 +75,7 @@ static HAL_StatusTypeDef zdt_send_frames(uint8_t slave, const uint8_t *payload, 
         tx_header.DLC = 8U;
         tx_header.TransmitGlobalTime = DISABLE;
 
-        if (HAL_CAN_AddTxMessage(modbus_can, &tx_header, packet_data, &tx_mailbox) != HAL_OK) {
+        if (HAL_CAN_AddTxMessage(zdt_can, &tx_header, packet_data, &tx_mailbox) != HAL_OK) {
             return HAL_ERROR;
         }
 
@@ -97,6 +110,84 @@ static void save_pending(uint8_t slave,
     }
 }
 
+static uint8_t enqueue_pending(uint8_t slave,
+                               uint8_t function_code,
+                               ZDT_PendingType_t type,
+                               const uint8_t *payload,
+                               uint8_t payload_len,
+                               zdt_speed_cb_t speed_cb,
+                               zdt_position_cb_t position_cb,
+                               zdt_status_cb_t status_cb)
+{
+    ZDT_PendingReq_t *slot;
+    uint8_t queue_size = (uint8_t)(sizeof(pending_queue) / sizeof(pending_queue[0]));
+
+    if ((payload == NULL) || (payload_len == 0U) || (payload_len > sizeof(pending_queue[0].tx_data))) {
+        return 0U;
+    }
+
+    if (pending_count >= queue_size) {
+        return 0U;
+    }
+
+    slot = &pending_queue[pending_tail];
+    (void)memset(slot, 0, sizeof(*slot));
+    slot->in_use = 1U;
+    slot->slave = slave;
+    slot->function_code = function_code;
+    slot->type = type;
+    slot->tx_len = payload_len;
+    slot->speed_cb = speed_cb;
+    slot->position_cb = position_cb;
+    slot->status_cb = status_cb;
+    (void)memcpy(slot->tx_data, payload, payload_len);
+
+    pending_tail = (uint8_t)((pending_tail + 1U) % queue_size);
+    pending_count++;
+    return 1U;
+}
+
+static uint8_t dequeue_pending(ZDT_PendingReq_t *out)
+{
+    ZDT_PendingReq_t *slot;
+    uint8_t queue_size = (uint8_t)(sizeof(pending_queue) / sizeof(pending_queue[0]));
+
+    if ((out == NULL) || (pending_count == 0U)) {
+        return 0U;
+    }
+
+    slot = &pending_queue[pending_head];
+    *out = *slot;
+    (void)memset(slot, 0, sizeof(*slot));
+
+    pending_head = (uint8_t)((pending_head + 1U) % queue_size);
+    pending_count--;
+    return 1U;
+}
+
+static void dispatch_next_pending(void)
+{
+    ZDT_PendingReq_t req;
+
+    if ((pending_req.in_use != 0U) || (pending_count == 0U)) {
+        return;
+    }
+
+    if (dequeue_pending(&req) == 0U) {
+        return;
+    }
+
+    if (zdt_send_frames(req.slave, req.tx_data, req.tx_len) != HAL_OK) {
+        timeout_drop_count++;
+        return;
+    }
+
+    pending_req = req;
+    pending_req.retries = 0U;
+    pending_req.last_tick = HAL_GetTick();
+    pending_req.in_use = 1U;
+}
+
 static HAL_StatusTypeDef send_and_optionally_wait(uint8_t slave,
                                                   const uint8_t *payload,
                                                   uint8_t payload_len,
@@ -113,8 +204,11 @@ static HAL_StatusTypeDef send_and_optionally_wait(uint8_t slave,
         need_wait = 1U;
     }
 
-    if ((pending_req.in_use != 0U) && (need_wait != 0U)) {
-        return HAL_BUSY;
+    if ((need_wait != 0U) && (slave != 0U) && (pending_req.in_use != 0U)) {
+        if (enqueue_pending(slave, payload[0], type, payload, payload_len, speed_cb, position_cb, status_cb) == 0U) {
+            return HAL_BUSY;
+        }
+        return HAL_OK;
     }
 
     status = zdt_send_frames(slave, payload, payload_len);
@@ -135,10 +229,11 @@ zdt_response_policy_t zdt_get_response_policy(void)
     return response_policy;
 }
 
-void modbus_can_init(CAN_HandleTypeDef *hcan_bus)
+void zdt_can_driver_init(CAN_HandleTypeDef *hcan_bus)
 {
-    modbus_can = hcan_bus;
+    zdt_can = hcan_bus;
     clear_pending();
+    pending_queue_reset();
 }
 
 HAL_StatusTypeDef zdt_motor_enable(uint8_t slave, uint8_t enable, uint8_t sync_flag)
@@ -157,19 +252,20 @@ HAL_StatusTypeDef zdt_motor_enable(uint8_t slave, uint8_t enable, uint8_t sync_f
 HAL_StatusTypeDef zdt_motor_set_speed(uint8_t slave, int32_t speed_rpm, uint8_t accel_level, uint8_t sync_flag)
 {
     uint8_t payload[8];
-    uint16_t abs_speed;
+    uint16_t abs_speed_01rpm;
     uint8_t dir;
 
     dir = (speed_rpm < 0) ? 0x01U : 0x00U;
-    abs_speed = (uint16_t)((speed_rpm < 0) ? (-speed_rpm) : speed_rpm);
-    if (abs_speed > 3000U) {
-        abs_speed = 3000U;
+    abs_speed_01rpm = (uint16_t)((speed_rpm < 0) ? (-speed_rpm) : speed_rpm);
+    if (abs_speed_01rpm > 3000U) {
+        abs_speed_01rpm = 3000U;
     }
+    abs_speed_01rpm = (uint16_t)(abs_speed_01rpm * 10U);
 
     payload[0] = ZDT_CMD_SPEED_MODE;
     payload[1] = dir;
-    payload[2] = (uint8_t)(abs_speed >> 8);
-    payload[3] = (uint8_t)(abs_speed & 0xFFU);
+    payload[2] = (uint8_t)(abs_speed_01rpm >> 8);
+    payload[3] = (uint8_t)(abs_speed_01rpm & 0xFFU);
     payload[4] = accel_level;
     payload[5] = (sync_flag != 0U) ? ZDT_SYNC_CACHE : ZDT_SYNC_IMMEDIATE;
     payload[6] = ZDT_CAN_CHECK_BYTE;
@@ -192,6 +288,7 @@ HAL_StatusTypeDef zdt_motor_set_position(uint8_t slave,
     if (speed_rpm > 3000U) {
         speed_rpm = 3000U;
     }
+    speed_rpm = (uint16_t)(speed_rpm * 10U);
 
     dir = (pulses < 0) ? 0x01U : 0x00U;
     abs_pulses = (uint32_t)((pulses < 0) ? (-pulses) : pulses);
@@ -287,7 +384,7 @@ HAL_StatusTypeDef zdt_read_motor_status(uint8_t slave, zdt_status_cb_t callback)
     return send_and_optionally_wait(slave, payload, (uint8_t)sizeof(payload), ZDT_PENDING_READ_STATUS, NULL, NULL, callback);
 }
 
-void modbus_process_response(CAN_RxHeaderTypeDef rxHeader, uint8_t rxData[8])
+void zdt_can_driver_process_response(CAN_RxHeaderTypeDef rxHeader, uint8_t rxData[8])
 {
     uint8_t slave;
     uint8_t packet;
@@ -318,16 +415,21 @@ void modbus_process_response(CAN_RxHeaderTypeDef rxHeader, uint8_t rxData[8])
 
     if ((rxHeader.DLC >= 2U) && ((rxData[1] == 0xE2U) || (rxData[1] == 0xEEU))) {
         clear_pending();
+        dispatch_next_pending();
         return;
     }
 
     switch (pending_req.type) {
-        case ZDT_PENDING_READ_SPEED:
+        case ZDT_PENDING_READ_SPEED: {
             if ((pending_req.speed_cb != NULL) && (rxHeader.DLC >= 4U)) {
-                int32_t speed = (int32_t)(((uint16_t)rxData[1] << 8) | rxData[2]);
-                pending_req.speed_cb(slave, speed);
+                int32_t speed_01rpm = (int32_t)(((uint16_t)rxData[2] << 8) | rxData[3]);
+                if (rxData[1] != 0U) {
+                    speed_01rpm = -speed_01rpm;
+                }
+                pending_req.speed_cb(slave, speed_01rpm);
             }
             break;
+        }
 
         case ZDT_PENDING_READ_POSITION:
             if ((pending_req.position_cb != NULL) && (rxHeader.DLC >= 7U)) {
@@ -343,11 +445,16 @@ void modbus_process_response(CAN_RxHeaderTypeDef rxHeader, uint8_t rxData[8])
             }
             break;
 
-        case ZDT_PENDING_READ_STATUS:
+        case ZDT_PENDING_READ_STATUS: {
             if ((pending_req.status_cb != NULL) && (rxHeader.DLC >= 3U)) {
-                pending_req.status_cb(slave, rxData[1]);
+                uint8_t status_flags = rxData[1];
+                if ((rxHeader.DLC >= 4U) && (rxData[1] == 0x00U)) {
+                    status_flags = rxData[2];
+                }
+                pending_req.status_cb(slave, status_flags);
             }
             break;
+        }
 
         case ZDT_PENDING_NONE:
         default:
@@ -355,13 +462,15 @@ void modbus_process_response(CAN_RxHeaderTypeDef rxHeader, uint8_t rxData[8])
     }
 
     clear_pending();
+    dispatch_next_pending();
 }
 
-void modbus_timeout_poll(void)
+void zdt_can_driver_timeout_poll(void)
 {
     uint32_t now;
 
     if (pending_req.in_use == 0U) {
+        dispatch_next_pending();
         return;
     }
 
@@ -377,10 +486,11 @@ void modbus_timeout_poll(void)
     } else {
         timeout_drop_count++;
         clear_pending();
+        dispatch_next_pending();
     }
 }
 
-uint32_t modbus_get_timeout_drop_count(void)
+uint32_t zdt_can_driver_get_timeout_drop_count(void)
 {
     return timeout_drop_count;
 }

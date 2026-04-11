@@ -47,7 +47,8 @@ typedef enum {
     MOTOR_CMD_SET_PROFILE = 0x04,
     MOTOR_CMD_SYNC_START = 0x05,
     MOTOR_CMD_SET_RESPONSE_POLICY = 0x06,
-    MOTOR_CMD_SET_REPORT_MASK = 0x07
+    MOTOR_CMD_SET_REPORT_MASK = 0x07,
+    MOTOR_CMD_SET_ADDRESS_MAP = 0x08
 } Motor_CommandCode_t;
 
 typedef struct {
@@ -62,6 +63,8 @@ typedef struct {
 extern Motor_State_t motors[MOTOR_COUNT];
 
 void motor_control_init(void);
+void motor_configure_addresses(const uint8_t *addr_list, uint8_t count);
+uint8_t motor_get_address(uint8_t idx);
 uint8_t motor_enqueue_command_from_isr(const Motor_Command_t *cmd);
 uint8_t motor_fetch_command(Motor_Command_t *cmd, uint32_t timeout_ms);
 uint16_t motor_allocate_cmd_seq(void);

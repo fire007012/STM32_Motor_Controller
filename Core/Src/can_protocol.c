@@ -32,6 +32,7 @@ void CAN1_RxCallback(CAN_RxHeaderTypeDef rxHeader, uint8_t rxData[8])
     if ((cmd.cmd != MOTOR_CMD_SYNC_START) &&
         (cmd.cmd != MOTOR_CMD_SET_RESPONSE_POLICY) &&
         (cmd.cmd != MOTOR_CMD_SET_REPORT_MASK) &&
+        (cmd.cmd != MOTOR_CMD_SET_ADDRESS_MAP) &&
         (cmd.motor_idx >= MOTOR_COUNT) &&
         (cmd.motor_idx != 0xFFU)) {
         return;
