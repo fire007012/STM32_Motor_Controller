@@ -49,10 +49,15 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/zdt_can_driver.c
     Core/Src/motor_control.c
     Core/Src/zdt_status.c
+    TOF_API/Core/Src/VL53L1X_api.c
+    TOF_API/Core/Src/VL53L1X_calibration.c
+    TOF_API/Platform/Src/vl53l1_platform.c
 )
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
+    TOF_API/Core/Inc
+    TOF_API/Platform/Inc
     # Add user defined include paths
 )
 

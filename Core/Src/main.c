@@ -26,7 +26,8 @@
 #include "zdt_can_driver.h"
 #include "motor_control.h"
 #include "zdt_status.h"
-
+#include "vl53l1x_api.h"
+#include "vl53l1x_calibration.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -36,7 +37,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define VL53L1X_ADDRESS 0x29
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -48,6 +49,8 @@
 CAN_HandleTypeDef hcan1;
 CAN_HandleTypeDef hcan2;
 
+I2C_HandleTypeDef hi2c2;
+
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
@@ -55,32 +58,9 @@ const osThreadAttr_t defaultTask_attributes = {
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
-
-/* Definitions for MotorControlTask */
-osThreadId_t motorControlTaskHandle;
-const osThreadAttr_t motorControlTask_attributes = {
-  .name = "MotorCtrlTask",
-  .stack_size = 256 * 4,
-  .priority = (osPriority_t) osPriorityAboveNormal,
-};
-
-/* Definitions for StatusTask */
-osThreadId_t statusTaskHandle;
-const osThreadAttr_t statusTask_attributes = {
-  .name = "StatusTask",
-  .stack_size = 256 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
-};
-
-/* Definitions for HeartbeatTask */
-osThreadId_t heartbeatTaskHandle;
-const osThreadAttr_t heartbeatTask_attributes = {
-  .name = "HeartbeatTask",
-  .stack_size = 192 * 4,
-  .priority = (osPriority_t) osPriorityAboveNormal1,
-};
 /* USER CODE BEGIN PV */
-
+VL53L1_Dev_t vl53l1x_dev;
+uint16_t distance_mm;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -88,10 +68,8 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_CAN1_Init(void);
 static void MX_CAN2_Init(void);
+static void MX_I2C2_Init(void);
 void StartDefaultTask(void *argument);
-void StartMotorControlTask(void *argument);
-void StartStatusTask(void *argument);
-void StartHeartbeatTask(void *argument);
 
 /* USER CODE BEGIN PFP */
 static void CAN_Filter_Config(void);
@@ -345,6 +323,7 @@ int main(void)
   MX_GPIO_Init();
   MX_CAN1_Init();
   MX_CAN2_Init();
+  MX_I2C2_Init();
   /* USER CODE BEGIN 2 */
   CAN_Filter_Config();
 
@@ -365,7 +344,10 @@ int main(void)
   {
     Error_Handler();
   }
-
+   VL53L1X_SensorInit(VL53L1X_ADDRESS);
+   VL53L1X_SetDistanceMode(VL53L1X_ADDRESS, 2);
+   VL53L1X_SetTimingBudgetInMs(VL53L1X_ADDRESS, 200);
+   VL53L1X_StartRanging(VL53L1X_ADDRESS);
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -392,9 +374,6 @@ int main(void)
   /* Create the thread(s) */
   /* creation of defaultTask */
   defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
-  motorControlTaskHandle = osThreadNew(StartMotorControlTask, NULL, &motorControlTask_attributes);
-  statusTaskHandle = osThreadNew(StartStatusTask, NULL, &statusTask_attributes);
-  heartbeatTaskHandle = osThreadNew(StartHeartbeatTask, NULL, &heartbeatTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -414,7 +393,14 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-
+		uint8_t data_ready = 0;
+    VL53L1X_CheckForDataReady(VL53L1X_ADDRESS, &data_ready);
+    while(data_ready == 0)
+    {
+        VL53L1X_CheckForDataReady(VL53L1X_ADDRESS, &data_ready);
+    }
+    VL53L1X_GetDistance(VL53L1X_ADDRESS, &distance_mm);
+    VL53L1X_ClearInterrupt(VL53L1X_ADDRESS);
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
@@ -540,6 +526,40 @@ static void MX_CAN2_Init(void)
 }
 
 /**
+  * @brief I2C2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C2_Init(void)
+{
+
+  /* USER CODE BEGIN I2C2_Init 0 */
+
+  /* USER CODE END I2C2_Init 0 */
+
+  /* USER CODE BEGIN I2C2_Init 1 */
+
+  /* USER CODE END I2C2_Init 1 */
+  hi2c2.Instance = I2C2;
+  hi2c2.Init.ClockSpeed = 100000;
+  hi2c2.Init.DutyCycle = I2C_DUTYCYCLE_2;
+  hi2c2.Init.OwnAddress1 = 0;
+  hi2c2.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c2.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c2.Init.OwnAddress2 = 0;
+  hi2c2.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c2.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C2_Init 2 */
+
+  /* USER CODE END I2C2_Init 2 */
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -580,87 +600,6 @@ void StartDefaultTask(void *argument)
     osDelay(1);
   }
   /* USER CODE END 5 */
-}
-
-/* USER CODE BEGIN Header_StartMotorControlTask */
-/**
-  * @brief  Pulls command queue and updates target registers every 10ms.
-  * @param  argument: Not used
-  * @retval None
-  */
-/* USER CODE END Header_StartMotorControlTask */
-void StartMotorControlTask(void *argument)
-{
-  Motor_Command_t cmd;
-  HAL_StatusTypeDef cmd_result;
-
-  for(;;)
-  {
-    if (motor_fetch_command(&cmd, 0U) == 1U)
-    {
-      cmd_result = motor_apply_command(&cmd);
-      CAN1_SendAck(cmd.seq, cmd.cmd, (cmd_result == HAL_OK) ? 0U : 1U);
-    }
-    zdt_can_driver_timeout_poll();
-    osDelay(10U);
-  }
-}
-
-/* USER CODE BEGIN Header_StartStatusTask */
-/**
-  * @brief  Polls status from drivers and reports to ROS every 50ms.
-  * @param  argument: Not used
-  * @retval None
-  */
-/* USER CODE END Header_StartStatusTask */
-void StartStatusTask(void *argument)
-{
-  uint8_t i;
-  uint8_t stats_div = 0U;
-  zdt_estop_event_t estop_event;
-
-  for(;;)
-  {
-    motor_update_status();
-    for (i = 0U; i < MOTOR_COUNT; i++)
-    {
-      CAN1_SendStatus(i);
-    }
-
-    stats_div++;
-    if (stats_div >= 4U)
-    {
-      stats_div = 0U;
-      CAN1_SendStats();
-    }
-
-    if (zdt_status_take_estop_event(&estop_event) == 1U)
-    {
-      motor_stop_all();
-      CAN1_SendEmergencyEvent(estop_event.motor_idx, estop_event.status_flags, estop_event.speed_rpm);
-    }
-
-    osDelay(50U);
-  }
-}
-
-/* USER CODE BEGIN Header_StartHeartbeatTask */
-/**
-  * @brief  Monitors ROS heartbeat and triggers stop on timeout.
-  * @param  argument: Not used
-  * @retval None
-  */
-/* USER CODE END Header_StartHeartbeatTask */
-void StartHeartbeatTask(void *argument)
-{
-  for(;;)
-  {
-    if (motor_is_ros_timeout(500U) == 1U)
-    {
-      motor_stop_all();
-    }
-    osDelay(20U);
-  }
 }
 
 /**
