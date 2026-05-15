@@ -39,6 +39,7 @@ void motor_control_init(void)
 void motor_configure_addresses(const uint8_t *addr_list, uint8_t count)
 {
     uint8_t i;
+    uint8_t j;
 
     if ((addr_list == NULL) || (count < MOTOR_COUNT)) {
         return;
@@ -47,6 +48,12 @@ void motor_configure_addresses(const uint8_t *addr_list, uint8_t count)
     for (i = 0U; i < MOTOR_COUNT; i++) {
         if (addr_list[i] == 0U) {
             return;
+        }
+
+        for (j = (uint8_t)(i + 1U); j < MOTOR_COUNT; j++) {
+            if (addr_list[i] == addr_list[j]) {
+                return;
+            }
         }
     }
 
@@ -200,14 +207,20 @@ void motor_set_response_policy(uint8_t wait_ack)
     }
 }
 
-void motor_stop_all(void)
+HAL_StatusTypeDef motor_stop_all(void)
 {
     uint8_t i;
+    HAL_StatusTypeDef status = HAL_OK;
 
     for (i = 0U; i < MOTOR_COUNT; i++) {
         motors[i].target_velocity = 0;
-        (void)zdt_motor_stop(motor_slave_addr[i], ZDT_SYNC_IMMEDIATE);
+        if (zdt_motor_stop(motor_slave_addr[i], ZDT_SYNC_IMMEDIATE) != HAL_OK) {
+            status = HAL_ERROR;
+            motor_record_stop_failure();
+        }
     }
+
+    return status;
 }
 
 static void motor_status_read_cb(uint8_t slave, uint8_t status_flags)
@@ -250,24 +263,46 @@ static void motor_velocity_read_cb(uint8_t slave, int32_t vel)
     zdt_status_update_speed(idx, vel);
 }
 
-void motor_update_status(void)
+void motor_update_status(uint8_t max_requests)
 {
-    static uint8_t i = 0U;
-    static uint8_t phase = 0U;
+    static uint8_t motor_idx = 0U;
+    uint8_t issued = 0U;
+    HAL_StatusTypeDef status;
 
-    if (phase == 0U) {
-        if (zdt_read_motor_status(motor_slave_addr[i], motor_status_read_cb) == HAL_OK) {
-            phase = 1U;
+    if (max_requests == 0U) {
+        return;
+    }
+
+    while (issued < max_requests) {
+        status = zdt_read_motor_status(motor_slave_addr[motor_idx], motor_status_read_cb);
+        if (status != HAL_OK) {
+            break;
         }
-    } else if (phase == 1U) {
-        if (zdt_read_realtime_position(motor_slave_addr[i], motor_position_read_cb) == HAL_OK) {
-            phase = 2U;
+
+        issued++;
+        if (issued >= max_requests) {
+            motor_idx = (uint8_t)((motor_idx + 1U) % MOTOR_COUNT);
+            break;
         }
-    } else {
-        if (zdt_read_realtime_speed(motor_slave_addr[i], motor_velocity_read_cb) == HAL_OK) {
-            phase = 0U;
-            i = (uint8_t)((i + 1U) % MOTOR_COUNT);
+
+        status = zdt_read_realtime_position(motor_slave_addr[motor_idx], motor_position_read_cb);
+        if (status != HAL_OK) {
+            break;
         }
+
+        issued++;
+        if (issued >= max_requests) {
+            motor_idx = (uint8_t)((motor_idx + 1U) % MOTOR_COUNT);
+            break;
+        }
+
+        status = zdt_read_realtime_speed(motor_slave_addr[motor_idx], motor_velocity_read_cb);
+        if (status != HAL_OK) {
+            break;
+        }
+
+        issued++;
+        motor_idx = (uint8_t)((motor_idx + 1U) % MOTOR_COUNT);
     }
 }
 
@@ -295,7 +330,7 @@ HAL_StatusTypeDef motor_apply_command(const Motor_Command_t *cmd)
             break;
 
         case MOTOR_CMD_ESTOP:
-            motor_stop_all();
+            status = motor_stop_all();
             break;
 
         case MOTOR_CMD_SET_POSITION:
@@ -350,6 +385,9 @@ HAL_StatusTypeDef motor_apply_command(const Motor_Command_t *cmd)
             motor_configure_addresses(addr_map, MOTOR_COUNT);
             break;
         }
+
+        case MOTOR_CMD_HEARTBEAT:
+            break;
 
         default:
             status = HAL_ERROR;
@@ -406,4 +444,19 @@ void motor_get_comm_stats(Motor_CommStats_t *stats_out)
 void motor_set_timeout_drop_count(uint32_t timeout_drop_count)
 {
     motor_comm_stats.timeout_drop_count = timeout_drop_count;
+}
+
+void motor_set_can2_tx_fail_count(uint32_t can2_tx_fail_count)
+{
+    motor_comm_stats.can2_tx_fail_count = can2_tx_fail_count;
+}
+
+void motor_record_can1_tx_failure(void)
+{
+    motor_comm_stats.can1_tx_fail_count++;
+}
+
+void motor_record_stop_failure(void)
+{
+    motor_comm_stats.stop_fail_count++;
 }

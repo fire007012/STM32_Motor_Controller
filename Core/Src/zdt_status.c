@@ -30,7 +30,7 @@ void zdt_status_update_status(uint8_t motor_idx, uint8_t status_flags)
 
     status_snapshot[motor_idx] = status_flags;
 
-    if (zdt_status_is_fault(status_flags) != 0U) {
+    if (zdt_status_classify(status_flags) == ZDT_EVENT_CLASS_FAULT) {
         estop_event.motor_idx = motor_idx;
         estop_event.status_flags = status_flags;
         estop_event.speed_rpm = speed_snapshot[motor_idx];
@@ -61,4 +61,21 @@ uint8_t zdt_status_take_estop_event(zdt_estop_event_t *event_out)
 uint8_t zdt_status_is_fault(uint8_t status_flags)
 {
     return ((status_flags & ZDT_STATUS_FAULT_MASK) != 0U) ? 1U : 0U;
+}
+
+zdt_event_class_t zdt_status_classify(uint8_t status_flags)
+{
+    if ((status_flags & ZDT_STATUS_FAULT_MASK) != 0U) {
+        return ZDT_EVENT_CLASS_FAULT;
+    }
+
+    if ((status_flags & ZDT_STATUS_WARNING_MASK) != 0U) {
+        return ZDT_EVENT_CLASS_WARNING;
+    }
+
+    if ((status_flags & ZDT_STATUS_INFO_MASK) != 0U) {
+        return ZDT_EVENT_CLASS_INFO;
+    }
+
+    return ZDT_EVENT_CLASS_NONE;
 }

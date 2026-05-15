@@ -58,6 +58,7 @@ HAL_StatusTypeDef zdt_read_motor_status(uint8_t slave, zdt_status_cb_t callback)
 void zdt_can_driver_process_response(CAN_RxHeaderTypeDef rxHeader, uint8_t rxData[8]);
 void zdt_can_driver_timeout_poll(void);
 uint32_t zdt_can_driver_get_timeout_drop_count(void);
+uint32_t zdt_can_driver_get_tx_fail_count(void);
 
 #ifdef __cplusplus
 }

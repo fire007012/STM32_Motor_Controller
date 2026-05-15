@@ -36,6 +36,9 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define STATUS_TASK_PERIOD_MS              20U
+#define STATUS_QUERY_BUDGET_PER_CYCLE      (MOTOR_COUNT * 3U)
+#define ROS_HEARTBEAT_TIMEOUT_FLAG         0x80U
 
 /* USER CODE END PD */
 
@@ -95,10 +98,11 @@ void StartHeartbeatTask(void *argument);
 
 /* USER CODE BEGIN PFP */
 static void CAN_Filter_Config(void);
+static HAL_StatusTypeDef CAN1_TrySend(const CAN_TxHeaderTypeDef *txHeader, uint8_t txData[8]);
 static void CAN1_SendStatus(uint8_t motor_idx);
 static void CAN1_SendAck(uint16_t seq, uint8_t cmd, uint8_t result);
 static void CAN1_SendStats(void);
-static void CAN1_SendEmergencyEvent(uint8_t motor_idx, uint8_t status_flags, int32_t speed_rpm);
+static void CAN1_SendEmergencyEvent(uint8_t motor_idx, uint8_t reason_code, int32_t speed_rpm);
 
 /* USER CODE END PFP */
 
@@ -136,11 +140,24 @@ static void CAN_Filter_Config(void)
   }
 }
 
+static HAL_StatusTypeDef CAN1_TrySend(const CAN_TxHeaderTypeDef *txHeader, uint8_t txData[8])
+{
+  uint32_t txMailbox;
+  HAL_StatusTypeDef status;
+
+  status = HAL_CAN_AddTxMessage(&hcan1, (CAN_TxHeaderTypeDef *)txHeader, txData, &txMailbox);
+  if (status != HAL_OK)
+  {
+    motor_record_can1_tx_failure();
+  }
+
+  return status;
+}
+
 static void CAN1_SendStatus(uint8_t motor_idx)
 {
   CAN_TxHeaderTypeDef txHeader = {0};
   uint8_t txData[8] = {0};
-  uint32_t txMailbox;
   int32_t pos;
   int32_t vel;
   uint8_t report_mask;
@@ -170,7 +187,7 @@ static void CAN1_SendStatus(uint8_t motor_idx)
 
   if ((report_mask & MOTOR_REPORT_BASIC) != 0U)
   {
-    (void)HAL_CAN_AddTxMessage(&hcan1, &txHeader, txData, &txMailbox);
+    (void)CAN1_TrySend(&txHeader, txData);
   }
 
   pos = motors[motor_idx].position_feedback;
@@ -185,7 +202,7 @@ static void CAN1_SendStatus(uint8_t motor_idx)
 
   if ((report_mask & MOTOR_REPORT_POSITION) != 0U)
   {
-    (void)HAL_CAN_AddTxMessage(&hcan1, &txHeader, txData, &txMailbox);
+    (void)CAN1_TrySend(&txHeader, txData);
   }
 
   vel = motors[motor_idx].current_velocity;
@@ -200,7 +217,7 @@ static void CAN1_SendStatus(uint8_t motor_idx)
 
   if ((report_mask & MOTOR_REPORT_VELOCITY) != 0U)
   {
-    (void)HAL_CAN_AddTxMessage(&hcan1, &txHeader, txData, &txMailbox);
+    (void)CAN1_TrySend(&txHeader, txData);
   }
 
   txData[0] = 0x04U;
@@ -214,7 +231,7 @@ static void CAN1_SendStatus(uint8_t motor_idx)
 
   if ((report_mask & MOTOR_REPORT_TARGET) != 0U)
   {
-    (void)HAL_CAN_AddTxMessage(&hcan1, &txHeader, txData, &txMailbox);
+    (void)CAN1_TrySend(&txHeader, txData);
 
     txData[0] = 0x05U;
     txData[1] = motor_idx;
@@ -224,7 +241,7 @@ static void CAN1_SendStatus(uint8_t motor_idx)
     txData[5] = (uint8_t)((uint32_t)motors[motor_idx].target_position >> 24);
     txData[6] = 0U;
     txData[7] = 0U;
-    (void)HAL_CAN_AddTxMessage(&hcan1, &txHeader, txData, &txMailbox);
+    (void)CAN1_TrySend(&txHeader, txData);
   }
 }
 
@@ -232,7 +249,6 @@ static void CAN1_SendAck(uint16_t seq, uint8_t cmd, uint8_t result)
 {
   CAN_TxHeaderTypeDef txHeader = {0};
   uint8_t txData[8] = {0};
-  uint32_t txMailbox;
 
   txData[0] = (uint8_t)(seq >> 8);
   txData[1] = (uint8_t)(seq & 0xFFU);
@@ -246,17 +262,17 @@ static void CAN1_SendAck(uint16_t seq, uint8_t cmd, uint8_t result)
   txHeader.DLC = 8U;
   txHeader.TransmitGlobalTime = DISABLE;
 
-  (void)HAL_CAN_AddTxMessage(&hcan1, &txHeader, txData, &txMailbox);
+  (void)CAN1_TrySend(&txHeader, txData);
 }
 
 static void CAN1_SendStats(void)
 {
   CAN_TxHeaderTypeDef txHeader = {0};
   uint8_t txData[8] = {0};
-  uint32_t txMailbox;
   Motor_CommStats_t stats;
 
   motor_set_timeout_drop_count(zdt_can_driver_get_timeout_drop_count());
+  motor_set_can2_tx_fail_count(zdt_can_driver_get_tx_fail_count());
   motor_get_comm_stats(&stats);
 
   txHeader.StdId = ROS_CAN_STATS_ID;
@@ -274,7 +290,7 @@ static void CAN1_SendStats(void)
   txData[5] = (uint8_t)(stats.timeout_drop_count & 0xFFU);
   txData[6] = (uint8_t)((stats.timeout_drop_count >> 8) & 0xFFU);
   txData[7] = 0U;
-  (void)HAL_CAN_AddTxMessage(&hcan1, &txHeader, txData, &txMailbox);
+  (void)CAN1_TrySend(&txHeader, txData);
 
   txData[0] = 0x02U;
   txData[1] = (uint8_t)(stats.exec_ok_count & 0xFFU);
@@ -284,18 +300,27 @@ static void CAN1_SendStats(void)
   txData[5] = (uint8_t)(stats.last_seq >> 8);
   txData[6] = (uint8_t)(stats.last_seq & 0xFFU);
   txData[7] = stats.last_result;
-  (void)HAL_CAN_AddTxMessage(&hcan1, &txHeader, txData, &txMailbox);
+  (void)CAN1_TrySend(&txHeader, txData);
+
+  txData[0] = 0x03U;
+  txData[1] = (uint8_t)(stats.can1_tx_fail_count & 0xFFU);
+  txData[2] = (uint8_t)((stats.can1_tx_fail_count >> 8) & 0xFFU);
+  txData[3] = (uint8_t)(stats.can2_tx_fail_count & 0xFFU);
+  txData[4] = (uint8_t)((stats.can2_tx_fail_count >> 8) & 0xFFU);
+  txData[5] = (uint8_t)(stats.stop_fail_count & 0xFFU);
+  txData[6] = (uint8_t)((stats.stop_fail_count >> 8) & 0xFFU);
+  txData[7] = 0U;
+  (void)CAN1_TrySend(&txHeader, txData);
 }
 
-static void CAN1_SendEmergencyEvent(uint8_t motor_idx, uint8_t status_flags, int32_t speed_rpm)
+static void CAN1_SendEmergencyEvent(uint8_t motor_idx, uint8_t reason_code, int32_t speed_rpm)
 {
   CAN_TxHeaderTypeDef txHeader = {0};
   uint8_t txData[8] = {0};
-  uint32_t txMailbox;
 
   txData[0] = 0x06U;
   txData[1] = motor_idx;
-  txData[2] = status_flags;
+  txData[2] = reason_code;
   txData[3] = (uint8_t)(speed_rpm & 0xFF);
   txData[4] = (uint8_t)((uint32_t)speed_rpm >> 8);
   txData[5] = (uint8_t)((uint32_t)speed_rpm >> 16);
@@ -309,7 +334,7 @@ static void CAN1_SendEmergencyEvent(uint8_t motor_idx, uint8_t status_flags, int
   txHeader.DLC = 8U;
   txHeader.TransmitGlobalTime = DISABLE;
 
-  (void)HAL_CAN_AddTxMessage(&hcan1, &txHeader, txData, &txMailbox);
+  (void)CAN1_TrySend(&txHeader, txData);
 }
 
 /* USER CODE END 0 */
@@ -608,7 +633,7 @@ void StartMotorControlTask(void *argument)
 
 /* USER CODE BEGIN Header_StartStatusTask */
 /**
-  * @brief  Polls status from drivers and reports to ROS every 50ms.
+  * @brief  Polls status from drivers and reports to ROS every 20ms.
   * @param  argument: Not used
   * @retval None
   */
@@ -621,7 +646,7 @@ void StartStatusTask(void *argument)
 
   for(;;)
   {
-    motor_update_status();
+    motor_update_status(STATUS_QUERY_BUDGET_PER_CYCLE);
     for (i = 0U; i < MOTOR_COUNT; i++)
     {
       CAN1_SendStatus(i);
@@ -636,11 +661,11 @@ void StartStatusTask(void *argument)
 
     if (zdt_status_take_estop_event(&estop_event) == 1U)
     {
-      motor_stop_all();
+      (void)motor_stop_all();
       CAN1_SendEmergencyEvent(estop_event.motor_idx, estop_event.status_flags, estop_event.speed_rpm);
     }
 
-    osDelay(50U);
+    osDelay(STATUS_TASK_PERIOD_MS);
   }
 }
 
@@ -653,11 +678,22 @@ void StartStatusTask(void *argument)
 /* USER CODE END Header_StartHeartbeatTask */
 void StartHeartbeatTask(void *argument)
 {
+  uint8_t timeout_latched = 0U;
+
   for(;;)
   {
     if (motor_is_ros_timeout(500U) == 1U)
     {
-      motor_stop_all();
+      if (timeout_latched == 0U)
+      {
+        (void)motor_stop_all();
+        CAN1_SendEmergencyEvent(0xFFU, ROS_HEARTBEAT_TIMEOUT_FLAG, 0);
+        timeout_latched = 1U;
+      }
+    }
+    else
+    {
+      timeout_latched = 0U;
     }
     osDelay(20U);
   }

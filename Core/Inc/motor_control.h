@@ -27,6 +27,9 @@ typedef struct {
     uint32_t exec_ok_count;
     uint32_t exec_fail_count;
     uint32_t timeout_drop_count;
+    uint32_t can1_tx_fail_count;
+    uint32_t can2_tx_fail_count;
+    uint32_t stop_fail_count;
     uint16_t last_seq;
     uint8_t last_cmd;
     uint8_t last_result;
@@ -48,7 +51,8 @@ typedef enum {
     MOTOR_CMD_SYNC_START = 0x05,
     MOTOR_CMD_SET_RESPONSE_POLICY = 0x06,
     MOTOR_CMD_SET_REPORT_MASK = 0x07,
-    MOTOR_CMD_SET_ADDRESS_MAP = 0x08
+    MOTOR_CMD_SET_ADDRESS_MAP = 0x08,
+    MOTOR_CMD_HEARTBEAT = 0x09
 } Motor_CommandCode_t;
 
 typedef struct {
@@ -78,8 +82,8 @@ void motor_set_speed_profile(uint8_t idx, uint16_t speed_rpm, uint8_t accel_leve
 void motor_trigger_sync_motion(void);
 HAL_StatusTypeDef motor_send_multi_cmd(const uint8_t *cmd_stream, uint16_t stream_len);
 void motor_set_response_policy(uint8_t wait_ack);
-void motor_stop_all(void);
-void motor_update_status(void);
+HAL_StatusTypeDef motor_stop_all(void);
+void motor_update_status(uint8_t max_requests);
 
 HAL_StatusTypeDef motor_apply_command(const Motor_Command_t *cmd);
 void motor_set_ros_alive(void);
@@ -88,6 +92,9 @@ void motor_set_report_mask(uint8_t report_mask);
 uint8_t motor_get_report_mask(void);
 void motor_get_comm_stats(Motor_CommStats_t *stats_out);
 void motor_set_timeout_drop_count(uint32_t timeout_drop_count);
+void motor_set_can2_tx_fail_count(uint32_t can2_tx_fail_count);
+void motor_record_can1_tx_failure(void);
+void motor_record_stop_failure(void);
 
 #ifdef __cplusplus
 }

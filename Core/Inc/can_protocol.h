@@ -22,6 +22,7 @@ extern "C" {
  *   0x06 set response policy, param0=1 wait-ack / 0 fire-and-forget
  *   0x07 set report mask, value[7:0]=bitmask(1 basic,2 pos,4 vel,8 target)
  *   0x08 set address map, value byte0..3 = motor0..3 slave address
+ *   0x09 heartbeat, no motion change, only refreshes ROS liveness watchdog
  * byte1: motor index 0..3 or 0xFF for all motors
  * byte2..5: value (int32 little-endian)
  * byte6: param0
@@ -29,6 +30,9 @@ extern "C" {
  *
  * Status frame note:
  *   type 0x03 current velocity and type 0x04 target velocity use 0.1 RPM units.
+ *   type 0x06 emergency event uses byte2 as reason/status field:
+ *     0x80 = ROS heartbeat timeout
+ *     other values = driver status flags reported by Y42
  */
 
 void CAN1_RxCallback(CAN_RxHeaderTypeDef rxHeader, uint8_t rxData[8]);

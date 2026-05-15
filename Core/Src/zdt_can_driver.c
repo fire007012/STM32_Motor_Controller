@@ -32,6 +32,21 @@ static uint8_t pending_count = 0U;
 
 static zdt_response_policy_t response_policy = ZDT_RESPONSE_WAIT_ACK;
 static uint32_t timeout_drop_count = 0U;
+static uint32_t tx_fail_count = 0U;
+
+static uint32_t zdt_enter_critical(void)
+{
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    return primask;
+}
+
+static void zdt_exit_critical(uint32_t primask)
+{
+    if (primask == 0U) {
+        __enable_irq();
+    }
+}
 
 static void clear_pending(void)
 {
@@ -76,6 +91,7 @@ static HAL_StatusTypeDef zdt_send_frames(uint8_t slave, const uint8_t *payload, 
         tx_header.TransmitGlobalTime = DISABLE;
 
         if (HAL_CAN_AddTxMessage(zdt_can, &tx_header, packet_data, &tx_mailbox) != HAL_OK) {
+            tx_fail_count++;
             return HAL_ERROR;
         }
 
@@ -121,12 +137,15 @@ static uint8_t enqueue_pending(uint8_t slave,
 {
     ZDT_PendingReq_t *slot;
     uint8_t queue_size = (uint8_t)(sizeof(pending_queue) / sizeof(pending_queue[0]));
+    uint32_t primask;
 
     if ((payload == NULL) || (payload_len == 0U) || (payload_len > sizeof(pending_queue[0].tx_data))) {
         return 0U;
     }
 
+    primask = zdt_enter_critical();
     if (pending_count >= queue_size) {
+        zdt_exit_critical(primask);
         return 0U;
     }
 
@@ -144,6 +163,7 @@ static uint8_t enqueue_pending(uint8_t slave,
 
     pending_tail = (uint8_t)((pending_tail + 1U) % queue_size);
     pending_count++;
+    zdt_exit_critical(primask);
     return 1U;
 }
 
@@ -151,8 +171,15 @@ static uint8_t dequeue_pending(ZDT_PendingReq_t *out)
 {
     ZDT_PendingReq_t *slot;
     uint8_t queue_size = (uint8_t)(sizeof(pending_queue) / sizeof(pending_queue[0]));
+    uint32_t primask;
 
-    if ((out == NULL) || (pending_count == 0U)) {
+    if (out == NULL) {
+        return 0U;
+    }
+
+    primask = zdt_enter_critical();
+    if (pending_count == 0U) {
+        zdt_exit_critical(primask);
         return 0U;
     }
 
@@ -162,30 +189,40 @@ static uint8_t dequeue_pending(ZDT_PendingReq_t *out)
 
     pending_head = (uint8_t)((pending_head + 1U) % queue_size);
     pending_count--;
+    zdt_exit_critical(primask);
     return 1U;
 }
 
 static void dispatch_next_pending(void)
 {
     ZDT_PendingReq_t req;
+    uint32_t primask;
 
+    primask = zdt_enter_critical();
     if ((pending_req.in_use != 0U) || (pending_count == 0U)) {
+        zdt_exit_critical(primask);
         return;
     }
+    zdt_exit_critical(primask);
 
     if (dequeue_pending(&req) == 0U) {
         return;
     }
 
-    if (zdt_send_frames(req.slave, req.tx_data, req.tx_len) != HAL_OK) {
-        timeout_drop_count++;
-        return;
-    }
-
+    primask = zdt_enter_critical();
     pending_req = req;
     pending_req.retries = 0U;
     pending_req.last_tick = HAL_GetTick();
     pending_req.in_use = 1U;
+    zdt_exit_critical(primask);
+
+    if (zdt_send_frames(req.slave, req.tx_data, req.tx_len) != HAL_OK) {
+        timeout_drop_count++;
+        primask = zdt_enter_critical();
+        clear_pending();
+        zdt_exit_critical(primask);
+        return;
+    }
 }
 
 static HAL_StatusTypeDef send_and_optionally_wait(uint8_t slave,
@@ -198,22 +235,37 @@ static HAL_StatusTypeDef send_and_optionally_wait(uint8_t slave,
 {
     HAL_StatusTypeDef status;
     uint8_t need_wait;
+    uint32_t primask;
+    uint8_t has_pending;
 
     need_wait = (type != ZDT_PENDING_NONE) ? 1U : 0U;
     if ((type == ZDT_PENDING_NONE) && (response_policy == ZDT_RESPONSE_WAIT_ACK) && (slave != 0U)) {
         need_wait = 1U;
     }
 
-    if ((need_wait != 0U) && (slave != 0U) && (pending_req.in_use != 0U)) {
+    primask = zdt_enter_critical();
+    has_pending = pending_req.in_use;
+    zdt_exit_critical(primask);
+
+    if ((need_wait != 0U) && (slave != 0U) && (has_pending != 0U)) {
         if (enqueue_pending(slave, payload[0], type, payload, payload_len, speed_cb, position_cb, status_cb) == 0U) {
             return HAL_BUSY;
         }
         return HAL_OK;
     }
 
-    status = zdt_send_frames(slave, payload, payload_len);
+    status = HAL_OK;
     if ((status == HAL_OK) && (need_wait != 0U) && (slave != 0U)) {
+        primask = zdt_enter_critical();
         save_pending(slave, payload[0], type, payload, payload_len, speed_cb, position_cb, status_cb);
+        zdt_exit_critical(primask);
+    }
+
+    status = zdt_send_frames(slave, payload, payload_len);
+    if ((status != HAL_OK) && (need_wait != 0U) && (slave != 0U)) {
+        primask = zdt_enter_critical();
+        clear_pending();
+        zdt_exit_critical(primask);
     }
 
     return status;
@@ -234,6 +286,7 @@ void zdt_can_driver_init(CAN_HandleTypeDef *hcan_bus)
     zdt_can = hcan_bus;
     clear_pending();
     pending_queue_reset();
+    tx_fail_count = 0U;
 }
 
 HAL_StatusTypeDef zdt_motor_enable(uint8_t slave, uint8_t enable, uint8_t sync_flag)
@@ -389,6 +442,8 @@ void zdt_can_driver_process_response(CAN_RxHeaderTypeDef rxHeader, uint8_t rxDat
     uint8_t slave;
     uint8_t packet;
     uint8_t func;
+    ZDT_PendingReq_t active_req;
+    uint32_t primask;
 
     if ((rxHeader.IDE != CAN_ID_EXT) || (rxHeader.DLC == 0U)) {
         return;
@@ -400,16 +455,20 @@ void zdt_can_driver_process_response(CAN_RxHeaderTypeDef rxHeader, uint8_t rxDat
         return;
     }
 
-    if (pending_req.in_use == 0U) {
+    primask = zdt_enter_critical();
+    active_req = pending_req;
+    zdt_exit_critical(primask);
+
+    if (active_req.in_use == 0U) {
         return;
     }
 
-    if (slave != pending_req.slave) {
+    if (slave != active_req.slave) {
         return;
     }
 
     func = rxData[0];
-    if (func != pending_req.function_code) {
+    if (func != active_req.function_code) {
         return;
     }
 
@@ -419,20 +478,20 @@ void zdt_can_driver_process_response(CAN_RxHeaderTypeDef rxHeader, uint8_t rxDat
         return;
     }
 
-    switch (pending_req.type) {
+    switch (active_req.type) {
         case ZDT_PENDING_READ_SPEED: {
-            if ((pending_req.speed_cb != NULL) && (rxHeader.DLC >= 4U)) {
+            if ((active_req.speed_cb != NULL) && (rxHeader.DLC >= 4U)) {
                 int32_t speed_01rpm = (int32_t)(((uint16_t)rxData[2] << 8) | rxData[3]);
                 if (rxData[1] != 0U) {
                     speed_01rpm = -speed_01rpm;
                 }
-                pending_req.speed_cb(slave, speed_01rpm);
+                active_req.speed_cb(slave, speed_01rpm);
             }
             break;
         }
 
         case ZDT_PENDING_READ_POSITION:
-            if ((pending_req.position_cb != NULL) && (rxHeader.DLC >= 7U)) {
+            if ((active_req.position_cb != NULL) && (rxHeader.DLC >= 7U)) {
                 uint32_t pos = ((uint32_t)rxData[2] << 24) |
                                ((uint32_t)rxData[3] << 16) |
                                ((uint32_t)rxData[4] << 8) |
@@ -441,17 +500,17 @@ void zdt_can_driver_process_response(CAN_RxHeaderTypeDef rxHeader, uint8_t rxDat
                 if (rxData[1] != 0U) {
                     signed_pos = -signed_pos;
                 }
-                pending_req.position_cb(slave, signed_pos);
+                active_req.position_cb(slave, signed_pos);
             }
             break;
 
         case ZDT_PENDING_READ_STATUS: {
-            if ((pending_req.status_cb != NULL) && (rxHeader.DLC >= 3U)) {
+            if ((active_req.status_cb != NULL) && (rxHeader.DLC >= 3U)) {
                 uint8_t status_flags = rxData[1];
                 if ((rxHeader.DLC >= 4U) && (rxData[1] == 0x00U)) {
                     status_flags = rxData[2];
                 }
-                pending_req.status_cb(slave, status_flags);
+                active_req.status_cb(slave, status_flags);
             }
             break;
         }
@@ -468,24 +527,35 @@ void zdt_can_driver_process_response(CAN_RxHeaderTypeDef rxHeader, uint8_t rxDat
 void zdt_can_driver_timeout_poll(void)
 {
     uint32_t now;
+    uint32_t primask;
+    ZDT_PendingReq_t active_req;
 
-    if (pending_req.in_use == 0U) {
+    primask = zdt_enter_critical();
+    active_req = pending_req;
+    zdt_exit_critical(primask);
+
+    if (active_req.in_use == 0U) {
         dispatch_next_pending();
         return;
     }
 
     now = HAL_GetTick();
-    if ((now - pending_req.last_tick) < 20U) {
+    if ((now - active_req.last_tick) < 20U) {
         return;
     }
 
-    if (pending_req.retries < 3U) {
+    if (active_req.retries < 3U) {
+        primask = zdt_enter_critical();
         pending_req.retries++;
         pending_req.last_tick = now;
-        (void)zdt_send_frames(pending_req.slave, pending_req.tx_data, pending_req.tx_len);
+        active_req = pending_req;
+        zdt_exit_critical(primask);
+        (void)zdt_send_frames(active_req.slave, active_req.tx_data, active_req.tx_len);
     } else {
         timeout_drop_count++;
+        primask = zdt_enter_critical();
         clear_pending();
+        zdt_exit_critical(primask);
         dispatch_next_pending();
     }
 }
@@ -493,4 +563,9 @@ void zdt_can_driver_timeout_poll(void)
 uint32_t zdt_can_driver_get_timeout_drop_count(void)
 {
     return timeout_drop_count;
+}
+
+uint32_t zdt_can_driver_get_tx_fail_count(void)
+{
+    return tx_fail_count;
 }

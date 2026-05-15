@@ -33,17 +33,14 @@ void CAN1_RxCallback(CAN_RxHeaderTypeDef rxHeader, uint8_t rxData[8])
         (cmd.cmd != MOTOR_CMD_SET_RESPONSE_POLICY) &&
         (cmd.cmd != MOTOR_CMD_SET_REPORT_MASK) &&
         (cmd.cmd != MOTOR_CMD_SET_ADDRESS_MAP) &&
+        (cmd.cmd != MOTOR_CMD_HEARTBEAT) &&
         (cmd.motor_idx >= MOTOR_COUNT) &&
         (cmd.motor_idx != 0xFFU)) {
         return;
     }
 
-    motor_set_ros_alive();
-
-    if (cmd.cmd == MOTOR_CMD_ESTOP) {
-        motor_stop_all();
-        motor_record_rx_result(1U);
-        return;
+    if ((cmd.cmd == MOTOR_CMD_HEARTBEAT) || (cmd.cmd == MOTOR_CMD_SET_VELOCITY) || (cmd.cmd == MOTOR_CMD_SET_POSITION)) {
+        motor_set_ros_alive();
     }
 
     enqueue_ok = motor_enqueue_command_from_isr(&cmd);
