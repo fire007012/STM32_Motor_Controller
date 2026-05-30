@@ -7,9 +7,9 @@ Motor_State_t motors[MOTOR_COUNT] = {0};
 
 static osMessageQueueId_t motor_cmd_queue = NULL;
 static uint32_t ros_last_heartbeat_tick = 0U;
-static uint8_t motor_slave_addr[MOTOR_COUNT] = {1U, 2U, 3U, 4U};
-static uint16_t motor_speed_profile[MOTOR_COUNT] = {1000U, 1000U, 1000U, 1000U};
-static uint8_t motor_accel_profile[MOTOR_COUNT] = {10U, 10U, 10U, 10U};
+static uint8_t motor_slave_addr[MOTOR_COUNT] = {0U, 0U, 0U, 0U, 5U};
+static uint16_t motor_speed_profile[MOTOR_COUNT] = {1000U, 1000U, 1000U, 1000U, 1000U};
+static uint8_t motor_accel_profile[MOTOR_COUNT] = {10U, 10U, 10U, 10U, 10U};
 static uint8_t motor_report_mask = (uint8_t)(MOTOR_REPORT_BASIC | MOTOR_REPORT_POSITION);
 static uint16_t motor_seq_counter = 0U;
 static Motor_CommStats_t motor_comm_stats = {0};
@@ -22,17 +22,22 @@ static int32_t rpm_to_01rpm(int32_t rpm)
 void motor_control_init(void)
 {
     uint8_t i;
+    volatile uint32_t dly;
 
     if (motor_cmd_queue == NULL) {
         motor_cmd_queue = osMessageQueueNew(MOTOR_CMD_QUEUE_LENGTH, sizeof(Motor_Command_t), NULL);
     }
-    ros_last_heartbeat_tick = HAL_GetTick();
+    ros_last_heartbeat_tick = 0U;
 
     zdt_status_init();
 
     for (i = 0U; i < MOTOR_COUNT; i++) {
+        if (motor_slave_addr[i] == 0U) {
+            continue;
+        }
         (void)zdt_motor_enable(motor_slave_addr[i], 1U, ZDT_SYNC_IMMEDIATE);
-        HAL_Delay(2U);
+        /* busy-wait ~2ms, HAL_Delay uses SysTick which is dead before RTOS starts */
+        for (dly = 0U; dly < 100000U; dly++) { __NOP(); }
     }
 }
 

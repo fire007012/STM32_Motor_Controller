@@ -112,13 +112,13 @@ static void CAN_Filter_Config(void)
 {
   CAN_FilterTypeDef filter = {0};
 
-  /* CAN1: receive ROS command frame 0x100 in FIFO0 with filter bank 0. */
+  /* CAN1: accept all frames in FIFO0 with filter bank 0. */
   filter.FilterBank = 0;
   filter.FilterMode = CAN_FILTERMODE_IDMASK;
   filter.FilterScale = CAN_FILTERSCALE_32BIT;
-  filter.FilterIdHigh = (uint16_t)(ROS_CAN_CMD_ID << 5);
+  filter.FilterIdHigh = 0x0000U;
   filter.FilterIdLow = 0x0000U;
-  filter.FilterMaskIdHigh = (uint16_t)(0x7FFU << 5);
+  filter.FilterMaskIdHigh = 0x0000U;
   filter.FilterMaskIdLow = 0x0000U;
   filter.FilterFIFOAssignment = CAN_FILTER_FIFO0;
   filter.FilterActivation = ENABLE;
@@ -391,6 +391,14 @@ int main(void)
     Error_Handler();
   }
 
+  /* ── K0/K1 测试代码已注释, 恢复 FreeRTOS 正常启动 ── */
+#if 0
+  /* ── K0(PE4)=逆时针180°(CCW) / K1(PE3)=顺时针180°(CW) ── */
+  {
+    ... (button test code preserved but disabled) ...
+  }
+#endif
+
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -506,11 +514,11 @@ static void MX_CAN1_Init(void)
 
   /* USER CODE END CAN1_Init 1 */
   hcan1.Instance = CAN1;
-  hcan1.Init.Prescaler = 10;
+  hcan1.Init.Prescaler = 6;
   hcan1.Init.Mode = CAN_MODE_NORMAL;
   hcan1.Init.SyncJumpWidth = CAN_SJW_1TQ;
-  hcan1.Init.TimeSeg1 = CAN_BS1_6TQ;
-  hcan1.Init.TimeSeg2 = CAN_BS2_1TQ;
+  hcan1.Init.TimeSeg1 = CAN_BS1_11TQ;
+  hcan1.Init.TimeSeg2 = CAN_BS2_2TQ;
   hcan1.Init.TimeTriggeredMode = DISABLE;
   hcan1.Init.AutoBusOff = ENABLE;
   hcan1.Init.AutoWakeUp = DISABLE;
@@ -543,11 +551,11 @@ static void MX_CAN2_Init(void)
 
   /* USER CODE END CAN2_Init 1 */
   hcan2.Instance = CAN2;
-  hcan2.Init.Prescaler = 10;
+  hcan2.Init.Prescaler = 6;
   hcan2.Init.Mode = CAN_MODE_NORMAL;
   hcan2.Init.SyncJumpWidth = CAN_SJW_1TQ;
-  hcan2.Init.TimeSeg1 = CAN_BS1_6TQ;
-  hcan2.Init.TimeSeg2 = CAN_BS2_1TQ;
+  hcan2.Init.TimeSeg1 = CAN_BS1_11TQ;
+  hcan2.Init.TimeSeg2 = CAN_BS2_2TQ;
   hcan2.Init.TimeTriggeredMode = DISABLE;
   hcan2.Init.AutoBusOff = ENABLE;
   hcan2.Init.AutoWakeUp = DISABLE;

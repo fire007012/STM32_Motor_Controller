@@ -74,12 +74,36 @@ static HAL_StatusTypeDef zdt_send_frames(uint8_t slave, const uint8_t *payload, 
         return HAL_ERROR;
     }
 
+    /* Single-frame: send as-is */
+    if (payload_len <= 8U) {
+        (void)memset(packet_data, 0, sizeof(packet_data));
+        (void)memcpy(packet_data, payload, payload_len);
+
+        tx_header.StdId = 0U;
+        tx_header.ExtId = (((uint32_t)slave) << ZDT_CAN_PACKET_SHIFT) | 0U;
+        tx_header.IDE = CAN_ID_EXT;
+        tx_header.RTR = CAN_RTR_DATA;
+        tx_header.DLC = 8U;
+        tx_header.TransmitGlobalTime = DISABLE;
+
+        if (HAL_CAN_AddTxMessage(zdt_can, &tx_header, packet_data, &tx_mailbox) != HAL_OK) {
+            tx_fail_count++;
+            return HAL_ERROR;
+        }
+        return HAL_OK;
+    }
+
+    /* Multi-frame: every frame starts with function code (payload[0]) */
+    /* Frame 0: func + payload[1..7] (8 bytes) */
+    /* Frame N: func + remaining data bytes */
+    uint8_t func = payload[0];
+    sent = 1U;
     packet_idx = 0U;
-    sent = 0U;
 
     while (sent < payload_len) {
         (void)memset(packet_data, 0, sizeof(packet_data));
-        for (i = 0U; (i < 8U) && (sent < payload_len); i++) {
+        packet_data[0] = func;
+        for (i = 1U; (i < 8U) && (sent < payload_len); i++) {
             packet_data[i] = payload[sent++];
         }
 
@@ -304,27 +328,26 @@ HAL_StatusTypeDef zdt_motor_enable(uint8_t slave, uint8_t enable, uint8_t sync_f
 
 HAL_StatusTypeDef zdt_motor_set_speed(uint8_t slave, int32_t speed_rpm, uint8_t accel_level, uint8_t sync_flag)
 {
+    /* X firmware F6: dir(1) + accel(2B RPM/s) + speed(2B ×0.1RPM) + sync(1) + chk(1) = 8 bytes */
     uint8_t payload[8];
-    uint16_t abs_speed_01rpm;
+    uint16_t x_speed;
     uint8_t dir;
 
     dir = (speed_rpm < 0) ? 0x01U : 0x00U;
-    abs_speed_01rpm = (uint16_t)((speed_rpm < 0) ? (-speed_rpm) : speed_rpm);
-    if (abs_speed_01rpm > 3000U) {
-        abs_speed_01rpm = 3000U;
-    }
-    abs_speed_01rpm = (uint16_t)(abs_speed_01rpm * 10U);
+    x_speed = (uint16_t)((speed_rpm < 0) ? (-speed_rpm) : speed_rpm);
+    if (x_speed > 3000U) { x_speed = 3000U; }
+    x_speed = (uint16_t)(x_speed * 10U);
 
-    payload[0] = ZDT_CMD_SPEED_MODE;
+    payload[0] = 0xF6U;
     payload[1] = dir;
-    payload[2] = (uint8_t)(abs_speed_01rpm >> 8);
-    payload[3] = (uint8_t)(abs_speed_01rpm & 0xFFU);
-    payload[4] = accel_level;
-    payload[5] = (sync_flag != 0U) ? ZDT_SYNC_CACHE : ZDT_SYNC_IMMEDIATE;
-    payload[6] = ZDT_CAN_CHECK_BYTE;
-    payload[7] = 0U;
+    payload[2] = (uint8_t)((uint16_t)accel_level >> 8);
+    payload[3] = (uint8_t)((uint16_t)accel_level & 0xFFU);
+    payload[4] = (uint8_t)(x_speed >> 8);
+    payload[5] = (uint8_t)(x_speed & 0xFFU);
+    payload[6] = (sync_flag != 0U) ? ZDT_SYNC_CACHE : ZDT_SYNC_IMMEDIATE;
+    payload[7] = ZDT_CAN_CHECK_BYTE;
 
-    return send_and_optionally_wait(slave, payload, 7U, ZDT_PENDING_NONE, NULL, NULL, NULL);
+    return send_and_optionally_wait(slave, payload, 8U, ZDT_PENDING_NONE, NULL, NULL, NULL);
 }
 
 HAL_StatusTypeDef zdt_motor_set_position(uint8_t slave,
@@ -334,33 +357,35 @@ HAL_StatusTypeDef zdt_motor_set_position(uint8_t slave,
                                          uint8_t mode,
                                          uint8_t sync_flag)
 {
-    uint8_t payload[13];
-    uint32_t abs_pulses;
+    /* X firmware FB: dir(1)+speed(2B ×0.1RPM)+pos(4B ×0.1°)+mode(1)+sync(1)+chk(1)=11 bytes */
+    uint8_t payload[12];
+    uint32_t x_pos;
+    uint16_t x_speed;
     uint8_t dir;
 
-    if (speed_rpm > 3000U) {
-        speed_rpm = 3000U;
-    }
-    speed_rpm = (uint16_t)(speed_rpm * 10U);
+    (void)accel_level; /* X firmware FB does not use accel field */
 
+    /* pulses → degrees×10: 3200pulse/360° → deg×10 = pulses * 9 / 8 */
+    x_pos = (pulses < 0) ? ((uint32_t)(-pulses) * 9U / 8U)
+                         : ((uint32_t)pulses * 9U / 8U);
     dir = (pulses < 0) ? 0x01U : 0x00U;
-    abs_pulses = (uint32_t)((pulses < 0) ? (-pulses) : pulses);
 
-    payload[0] = ZDT_CMD_POSITION_MODE;
-    payload[1] = dir;
-    payload[2] = (uint8_t)(speed_rpm >> 8);
-    payload[3] = (uint8_t)(speed_rpm & 0xFFU);
-    payload[4] = accel_level;
-    payload[5] = (uint8_t)(abs_pulses >> 24);
-    payload[6] = (uint8_t)(abs_pulses >> 16);
-    payload[7] = (uint8_t)(abs_pulses >> 8);
-    payload[8] = (uint8_t)(abs_pulses & 0xFFU);
-    payload[9] = mode;
-    payload[10] = (sync_flag != 0U) ? ZDT_SYNC_CACHE : ZDT_SYNC_IMMEDIATE;
-    payload[11] = ZDT_CAN_CHECK_BYTE;
-    payload[12] = 0U;
+    if (speed_rpm > 3000U) { speed_rpm = 3000U; }
+    x_speed = speed_rpm * 10U;
 
-    return send_and_optionally_wait(slave, payload, 12U, ZDT_PENDING_NONE, NULL, NULL, NULL);
+    payload[0]  = 0xFBU;
+    payload[1]  = dir;
+    payload[2]  = (uint8_t)(x_speed >> 8);
+    payload[3]  = (uint8_t)(x_speed & 0xFFU);
+    payload[4]  = (uint8_t)(x_pos >> 24);
+    payload[5]  = (uint8_t)(x_pos >> 16);
+    payload[6]  = (uint8_t)(x_pos >> 8);
+    payload[7]  = (uint8_t)(x_pos & 0xFFU);
+    payload[8]  = mode;
+    payload[9]  = (sync_flag != 0U) ? ZDT_SYNC_CACHE : ZDT_SYNC_IMMEDIATE;
+    payload[10] = ZDT_CAN_CHECK_BYTE;
+
+    return send_and_optionally_wait(slave, payload, 11U, ZDT_PENDING_NONE, NULL, NULL, NULL);
 }
 
 HAL_StatusTypeDef zdt_motor_stop(uint8_t slave, uint8_t sync_flag)

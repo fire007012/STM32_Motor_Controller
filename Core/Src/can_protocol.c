@@ -2,6 +2,8 @@
 
 #include "motor_control.h"
 
+extern CAN_HandleTypeDef hcan2;
+
 static int32_t parse_int32_le(const uint8_t data[8])
 {
     uint32_t v;
@@ -13,10 +15,34 @@ static int32_t parse_int32_le(const uint8_t data[8])
     return (int32_t)v;
 }
 
+static void forward_can1_ext_to_can2(const CAN_RxHeaderTypeDef *rxHeader, const uint8_t rxData[8])
+{
+    CAN_TxHeaderTypeDef txHeader = {0};
+    uint32_t txMailbox;
+
+    if (rxHeader == NULL) {
+        return;
+    }
+
+    txHeader.StdId = 0U;
+    txHeader.ExtId = rxHeader->ExtId;
+    txHeader.IDE = CAN_ID_EXT;
+    txHeader.RTR = rxHeader->RTR;
+    txHeader.DLC = rxHeader->DLC;
+    txHeader.TransmitGlobalTime = DISABLE;
+
+    (void)HAL_CAN_AddTxMessage(&hcan2, &txHeader, (uint8_t *)rxData, &txMailbox);
+}
+
 void CAN1_RxCallback(CAN_RxHeaderTypeDef rxHeader, uint8_t rxData[8])
 {
     Motor_Command_t cmd;
     uint8_t enqueue_ok;
+
+    if (rxHeader.IDE == CAN_ID_EXT) {
+        forward_can1_ext_to_can2(&rxHeader, rxData);
+        return;
+    }
 
     if ((rxHeader.IDE != CAN_ID_STD) || (rxHeader.StdId != ROS_CAN_CMD_ID) || (rxHeader.DLC < 8U)) {
         return;

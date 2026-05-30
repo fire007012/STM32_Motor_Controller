@@ -56,10 +56,40 @@
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+extern CAN_HandleTypeDef hcan1;
+
+static void forward_can2_to_can1(const CAN_RxHeaderTypeDef *rxHeader, const uint8_t rxData[8])
+{
+  CAN_TxHeaderTypeDef txHeader = {0};
+  uint32_t txMailbox;
+
+  if (rxHeader == NULL)
+  {
+    return;
+  }
+
+  if (rxHeader->IDE == CAN_ID_EXT)
+  {
+    txHeader.ExtId = rxHeader->ExtId;
+    txHeader.StdId = 0U;
+    txHeader.IDE = CAN_ID_EXT;
+  }
+  else
+  {
+    txHeader.StdId = rxHeader->StdId;
+    txHeader.ExtId = 0U;
+    txHeader.IDE = CAN_ID_STD;
+  }
+
+  txHeader.RTR = rxHeader->RTR;
+  txHeader.DLC = rxHeader->DLC;
+  txHeader.TransmitGlobalTime = DISABLE;
+
+  (void)HAL_CAN_AddTxMessage(&hcan1, &txHeader, (uint8_t *)rxData, &txMailbox);
+}
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
-extern CAN_HandleTypeDef hcan1;
 extern CAN_HandleTypeDef hcan2;
 
 /* USER CODE BEGIN EV */
@@ -220,6 +250,7 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
   else if (hcan == &hcan2)
   {
     zdt_can_driver_process_response(rxHeader, rxData);
+    forward_can2_to_can1(&rxHeader, rxData);
   }
 }
 
