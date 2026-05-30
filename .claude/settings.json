@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Read(//c/Users/Lizy/Documents/STM32/ZDT1/**)",
-      "Read(//d/Dev/资料/ZDT/V2.0/A. 例程_STM32F407/HAL库/X固件/HAL_X_CAN/STM32F407_CAN通讯__直通限速位置模式控制/Src/**)"
-    ]
-  }
-}

@@ -1,4 +1,6 @@
 build
 mx.scratch
-!.settings
+.settings
 .claude
+.metadata
+.vscode
