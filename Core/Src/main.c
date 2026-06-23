@@ -391,13 +391,70 @@ int main(void)
     Error_Handler();
   }
 
-  /* ── K0/K1 测试代码已注释, 恢复 FreeRTOS 正常启动 ── */
-#if 0
   /* ── K0(PE4)=逆时针180°(CCW) / K1(PE3)=顺时针180°(CW) ── */
   {
-    ... (button test code preserved but disabled) ...
+    uint8_t d[8];
+    CAN_TxHeaderTypeDef h = {0};
+    uint32_t mb;
+    volatile uint32_t busy;
+    GPIO_InitTypeDef gpio = {0};
+    uint8_t k0_prev = 1U, k1_prev = 1U, k0_now, k1_now;
+
+    __HAL_RCC_GPIOE_CLK_ENABLE();
+    gpio.Pin = GPIO_PIN_4 | GPIO_PIN_3;
+    gpio.Mode = GPIO_MODE_INPUT;
+    gpio.Pull = GPIO_PULLUP;
+    HAL_GPIO_Init(GPIOE, &gpio);
+
+    h.IDE = CAN_ID_EXT;
+    h.RTR = CAN_RTR_DATA;
+    h.TransmitGlobalTime = DISABLE;
+
+    /* 使能地址5: F3 AB 01 00 6B */
+    d[0]=0xF3U; d[1]=0xABU; d[2]=0x01U; d[3]=0x00U; d[4]=0x6BU;
+    d[5]=0x00U; d[6]=0x00U; d[7]=0x00U;
+    h.DLC = 8U; h.ExtId = (5U << 8) | 0U;
+    while (HAL_CAN_AddTxMessage(&hcan2, &h, d, &mb) != HAL_OK);
+    for (busy = 0U; busy < 16000000U; busy++) { __NOP(); }
+
+    while (1) {
+      k0_now = (uint8_t)HAL_GPIO_ReadPin(GPIOE, GPIO_PIN_4);
+      k1_now = (uint8_t)HAL_GPIO_ReadPin(GPIOE, GPIO_PIN_3);
+
+      /* K0↓: CCW 180° (dir=1, mode=2=从当前位置) */
+      if (k0_prev == 1U && k0_now == 0U) {
+        for (busy = 0U; busy < 300000U; busy++) { __NOP(); }
+        if (HAL_GPIO_ReadPin(GPIOE, GPIO_PIN_4) == GPIO_PIN_RESET) {
+          d[0]=0xFBU; d[1]=0x01U; d[2]=0x01U; d[3]=0xF4U;
+          d[4]=0x00U; d[5]=0x00U; d[6]=0x07U; d[7]=0x08U;
+          h.DLC = 8U; h.ExtId = (5U << 8) | 0U;
+          while (HAL_CAN_AddTxMessage(&hcan2, &h, d, &mb) != HAL_OK);
+          d[0]=0xFBU; d[1]=0x02U; d[2]=0x00U; d[3]=0x6BU;
+          d[4]=0x00U; d[5]=0x00U; d[6]=0x00U; d[7]=0x00U;
+          h.DLC = 4U; h.ExtId = (5U << 8) | 1U;
+          while (HAL_CAN_AddTxMessage(&hcan2, &h, d, &mb) != HAL_OK);
+        }
+      }
+
+      /* K1↓: CW 180° (dir=0, mode=2=从当前位置) */
+      if (k1_prev == 1U && k1_now == 0U) {
+        for (busy = 0U; busy < 300000U; busy++) { __NOP(); }
+        if (HAL_GPIO_ReadPin(GPIOE, GPIO_PIN_3) == GPIO_PIN_RESET) {
+          d[0]=0xFBU; d[1]=0x00U; d[2]=0x01U; d[3]=0xF4U;
+          d[4]=0x00U; d[5]=0x00U; d[6]=0x07U; d[7]=0x08U;
+          h.DLC = 8U; h.ExtId = (5U << 8) | 0U;
+          while (HAL_CAN_AddTxMessage(&hcan2, &h, d, &mb) != HAL_OK);
+          d[0]=0xFBU; d[1]=0x02U; d[2]=0x00U; d[3]=0x6BU;
+          d[4]=0x00U; d[5]=0x00U; d[6]=0x00U; d[7]=0x00U;
+          h.DLC = 4U; h.ExtId = (5U << 8) | 1U;
+          while (HAL_CAN_AddTxMessage(&hcan2, &h, d, &mb) != HAL_OK);
+        }
+      }
+
+      k0_prev = k0_now; k1_prev = k1_now;
+      for (busy = 0U; busy < 50000U; busy++) { __NOP(); }
+    }
   }
-#endif
 
   /* USER CODE END 2 */
 
@@ -419,7 +476,7 @@ int main(void)
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
   zdt_can_driver_init(&hcan2);
-  motor_control_init();
+  /* motor_control_init(); */
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
