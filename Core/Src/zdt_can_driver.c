@@ -63,7 +63,7 @@ static void pending_queue_reset(void)
 
 static HAL_StatusTypeDef zdt_send_frames(uint8_t slave, const uint8_t *payload, uint8_t payload_len)
 {
-    CAN_TxHeaderTypeDef tx_header;
+    CAN_TxHeaderTypeDef tx_header = {0};
     uint8_t packet_data[8];
     uint8_t packet_idx;
     uint8_t i;

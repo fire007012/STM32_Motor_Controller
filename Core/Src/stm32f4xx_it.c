@@ -85,7 +85,7 @@ static void forward_can2_to_can1(const CAN_RxHeaderTypeDef *rxHeader, const uint
   txHeader.DLC = rxHeader->DLC;
   txHeader.TransmitGlobalTime = DISABLE;
 
-  (void)HAL_CAN_AddTxMessage(&hcan1, &txHeader, (uint8_t *)rxData, &txMailbox);
+  while (HAL_CAN_AddTxMessage(&hcan1, &txHeader, (uint8_t *)rxData, &txMailbox) != HAL_OK);
 }
 /* USER CODE END 0 */
 

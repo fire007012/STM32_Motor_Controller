@@ -391,7 +391,8 @@ int main(void)
     Error_Handler();
   }
 
-  /* ── K0(PE4)=逆时针180°(CCW) / K1(PE3)=顺时针180°(CW) ── */
+  /* ── K0/K1 禁用, 恢复 ROS 模式 ── */
+#if 0
   {
     uint8_t d[8];
     CAN_TxHeaderTypeDef h = {0};
@@ -455,6 +456,7 @@ int main(void)
       for (busy = 0U; busy < 50000U; busy++) { __NOP(); }
     }
   }
+#endif
 
   /* USER CODE END 2 */
 
@@ -476,14 +478,14 @@ int main(void)
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
   zdt_can_driver_init(&hcan2);
-  /* motor_control_init(); */
+  motor_control_init();
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
   /* creation of defaultTask */
   defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
   motorControlTaskHandle = osThreadNew(StartMotorControlTask, NULL, &motorControlTask_attributes);
-  statusTaskHandle = osThreadNew(StartStatusTask, NULL, &statusTask_attributes);
+  /* statusTaskHandle = osThreadNew(StartStatusTask, NULL, &statusTask_attributes); */
   heartbeatTaskHandle = osThreadNew(StartHeartbeatTask, NULL, &heartbeatTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
