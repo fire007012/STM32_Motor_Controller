@@ -8,7 +8,7 @@ extern "C" {
 #include "main.h"
 #include "cmsis_os.h"
 
-#define MOTOR_COUNT                         4U
+#define MOTOR_COUNT                         5U
 #define MOTOR_CMD_QUEUE_LENGTH              16U
 
 typedef struct {

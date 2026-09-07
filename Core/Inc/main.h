@@ -49,10 +49,13 @@ extern "C" {
 
 /* USER CODE END EM */
 
+void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
+
 /* Exported functions prototypes ---------------------------------------------*/
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
+void Servo_HandleCanCommand(const uint8_t data[8]);
 
 /* USER CODE END EFP */
 

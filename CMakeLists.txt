@@ -70,3 +70,25 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
 
     # Add user defined libraries
 )
+
+get_filename_component(STM32_TOOLCHAIN_BIN_DIR "${CMAKE_C_COMPILER}" DIRECTORY)
+find_program(STM32_OBJCOPY
+    NAMES arm-none-eabi-objcopy
+    HINTS "${STM32_TOOLCHAIN_BIN_DIR}"
+    NO_DEFAULT_PATH
+)
+
+if(STM32_OBJCOPY)
+    add_custom_command(TARGET ${CMAKE_PROJECT_NAME} POST_BUILD
+        COMMAND ${STM32_OBJCOPY} -O ihex
+                $<TARGET_FILE:${CMAKE_PROJECT_NAME}>
+                ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_PROJECT_NAME}.hex
+        COMMAND ${STM32_OBJCOPY} -O binary
+                $<TARGET_FILE:${CMAKE_PROJECT_NAME}>
+                ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_PROJECT_NAME}.bin
+        BYPRODUCTS
+                ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_PROJECT_NAME}.hex
+                ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_PROJECT_NAME}.bin
+        COMMENT "Generating HEX and BIN firmware images"
+    )
+endif()

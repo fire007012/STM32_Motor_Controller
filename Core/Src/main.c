@@ -39,6 +39,18 @@
 #define STATUS_TASK_PERIOD_MS              20U
 #define STATUS_QUERY_BUDGET_PER_CYCLE      (MOTOR_COUNT * 3U)
 #define ROS_HEARTBEAT_TIMEOUT_FLAG         0x80U
+#define SERVO_PWM_MIN_TICKS                55U
+#define SERVO_PWM_MAX_TICKS                250U
+#define SERVO_CAN_CMD_ID                   0x700U
+#define SERVO_CAN_CMD_CODE                 0x20U
+#define SERVO_BOARD_STANDARD                1U
+#define SERVO_BOARD_CAM                     2U
+#define SERVO_ACTIVE_BOARD                  SERVO_BOARD_STANDARD
+#define SERVO_STARTUP_ANGLE                 180
+#define SERVO_NEW_STOP_TICKS                150U /* 1.50 ms neutral; calibrate if needed */
+#define SERVO_NEW_CCW_TICKS                 55U  /* 0.55 ms */
+#define SERVO_NEW_CW_TICKS                  250U /* 2.50 ms */
+#define SERVO_NEW_MOVE_MS                   235U /* measured approximately 180 degrees */
 
 /* USER CODE END PD */
 
@@ -50,6 +62,10 @@
 /* Private variables ---------------------------------------------------------*/
 CAN_HandleTypeDef hcan1;
 CAN_HandleTypeDef hcan2;
+
+TIM_HandleTypeDef htim1;
+TIM_HandleTypeDef htim3;
+TIM_HandleTypeDef htim4;
 
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
@@ -91,6 +107,9 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_CAN1_Init(void);
 static void MX_CAN2_Init(void);
+static void MX_TIM1_Init(void);
+static void MX_TIM3_Init(void);
+static void MX_TIM4_Init(void);
 void StartDefaultTask(void *argument);
 void StartMotorControlTask(void *argument);
 void StartStatusTask(void *argument);
@@ -98,27 +117,207 @@ void StartHeartbeatTask(void *argument);
 
 /* USER CODE BEGIN PFP */
 static void CAN_Filter_Config(void);
+static uint8_t CAN_TryStart(CAN_HandleTypeDef *hcan);
+static void CAN_ServiceStartup(void);
 static HAL_StatusTypeDef CAN1_TrySend(const CAN_TxHeaderTypeDef *txHeader, uint8_t txData[8]);
 static void CAN1_SendStatus(uint8_t motor_idx);
 static void CAN1_SendAck(uint16_t seq, uint8_t cmd, uint8_t result);
 static void CAN1_SendStats(void);
 static void CAN1_SendEmergencyEvent(uint8_t motor_idx, uint8_t reason_code, int32_t speed_rpm);
+static HAL_StatusTypeDef Servo_Init(void);
+static void Servo_SetBoth(int16_t angle_deg);
+static void Servo_PollButtons(void);
+static void Servo_Service(void);
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+static volatile uint8_t servo_return_pending = 0U;
+static volatile uint8_t servo_return_angle = 0U;
+static volatile uint8_t servo_return_mask = 0U;
+static volatile uint32_t servo_return_tick = 0U;
+static volatile uint8_t new_servo_motion_pending = 0U;
+static volatile uint32_t new_servo_motion_stop_tick = 0U;
+static volatile uint8_t servo_initialized = 0U;
+static uint8_t can1_started = 0U;
+static uint8_t can2_started = 0U;
+
+static uint32_t Servo_AngleToPulse(int16_t angle_deg)
+{
+  int32_t angle = angle_deg;
+  int32_t span = (int32_t)SERVO_PWM_MAX_TICKS - (int32_t)SERVO_PWM_MIN_TICKS;
+
+  /* The old servo is mechanically limited to 0..180 degrees.  Keep -10
+   * as a calibration position instead of allowing signed-to-unsigned wrap. */
+  if (angle < -10) angle = -10;
+  if (angle > 180) angle = 180;
+
+  return (uint32_t)((int32_t)SERVO_PWM_MIN_TICKS +
+                    (span * angle + ((angle >= 0) ? 90 : -90)) / 180);
+}
+
+static void Servo_SetAngle(TIM_HandleTypeDef *htim, uint32_t channel, int16_t angle_deg)
+{
+  __HAL_TIM_SET_COMPARE(htim, channel, Servo_AngleToPulse(angle_deg));
+}
+
+static void Servo_SetBoth(int16_t angle_deg)
+{
+  Servo_SetAngle(&htim3, TIM_CHANNEL_3, angle_deg);
+  Servo_SetAngle(&htim4, TIM_CHANNEL_3, angle_deg);
+}
+
+static void NewServo_Stop(void)
+{
+  __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_3, SERVO_NEW_STOP_TICKS);
+  new_servo_motion_pending = 0U;
+}
+
+static void NewServo_Rotate(uint8_t clockwise)
+{
+  __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_3,
+                        clockwise ? SERVO_NEW_CW_TICKS : SERVO_NEW_CCW_TICKS);
+  new_servo_motion_stop_tick = HAL_GetTick() + SERVO_NEW_MOVE_MS;
+  new_servo_motion_pending = 1U;
+}
+
+static HAL_StatusTypeDef Servo_Init(void)
+{
+  /* Both drug-box servos start synchronously at the safe neutral position.
+   * This also gives RESET a deterministic 90-degree behavior. */
+  Servo_SetAngle(&htim3, TIM_CHANNEL_3, SERVO_STARTUP_ANGLE);
+  NewServo_Stop();
+
+  if (HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3) != HAL_OK)
+  {
+    return HAL_ERROR;
+  }
+
+  if (HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_3) != HAL_OK)
+  {
+    return HAL_ERROR;
+  }
+
+  servo_initialized = 1U;
+  return HAL_OK;
+}
+
+static uint8_t Servo_ChecksumOk(const uint8_t data[8])
+{
+  uint8_t sum = 0U;
+  uint8_t i;
+
+  for (i = 0U; i < 7U; i++)
+  {
+    sum = (uint8_t)(sum + data[i]);
+  }
+
+  return (sum == data[7]) ? 1U : 0U;
+}
+
+void Servo_HandleCanCommand(const uint8_t data[8])
+{
+  uint16_t hold_ms;
+  uint32_t now;
+
+  if ((data == NULL) || (data[0] != SERVO_CAN_CMD_CODE) || (Servo_ChecksumOk(data) == 0U))
+  {
+    return;
+  }
+
+  servo_return_pending = 0U;
+
+  if ((data[1] & 0x01U) != 0U)
+  {
+    Servo_SetAngle(&htim3, TIM_CHANNEL_3, data[2]);
+  }
+
+  if ((data[1] & 0x02U) != 0U)
+  {
+    Servo_SetAngle(&htim4, TIM_CHANNEL_3, data[3]);
+  }
+
+  hold_ms = (uint16_t)data[5] | ((uint16_t)data[6] << 8);
+  if (hold_ms != 0U)
+  {
+    servo_return_angle = data[4];
+    servo_return_mask = (uint8_t)(data[1] & 0x03U);
+    now = HAL_GetTick();
+    servo_return_tick = now + hold_ms;
+    servo_return_pending = 1U;
+  }
+}
+
+static void Servo_PollButtons(void)
+{
+  static uint8_t k0_stable = 0U, k1_stable = 0U, wkup_stable = 0U;
+  static uint8_t k0_debounce = 0U, k1_debounce = 0U, wkup_debounce = 0U;
+  uint8_t k0_now = 0U, k1_now = 0U;
+  uint8_t wkup_now = (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET) ? 1U : 0U;
+
+#if (SERVO_ACTIVE_BOARD == SERVO_BOARD_STANDARD)
+  k0_now = (HAL_GPIO_ReadPin(GPIOE, GPIO_PIN_4) == GPIO_PIN_RESET) ? 1U : 0U;
+  k1_now = (HAL_GPIO_ReadPin(GPIOE, GPIO_PIN_3) == GPIO_PIN_RESET) ? 1U : 0U;
+#else
+  k0_now = (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_0) == GPIO_PIN_SET) ? 1U : 0U;
+#endif
+
+#define SERVO_DEBOUNCE(now, stable, counter, action) do { \
+  if ((now) != (stable)) { \
+    if (++(counter) >= 20U) { \
+      (stable) = (now); (counter) = 0U; \
+      if ((stable) != 0U) { action; } \
+    } \
+  } else { (counter) = 0U; } \
+} while (0)
+#if (SERVO_ACTIVE_BOARD == SERVO_BOARD_STANDARD)
+  SERVO_DEBOUNCE(k0_now, k0_stable, k0_debounce, (Servo_SetAngle(&htim3, TIM_CHANNEL_3, 0), NewServo_Rotate(0U)));
+  SERVO_DEBOUNCE(k1_now, k1_stable, k1_debounce, (Servo_SetAngle(&htim3, TIM_CHANNEL_3, 180), NewServo_Rotate(1U)));
+  /* WK_UP intentionally unused in this first continuous-servo test. */
+#else
+  SERVO_DEBOUNCE(k0_now, k0_stable, k0_debounce, Servo_SetBoth(180));
+  SERVO_DEBOUNCE(wkup_now, wkup_stable, wkup_debounce, Servo_SetBoth(0));
+#endif
+#undef SERVO_DEBOUNCE
+}
+
+static void Servo_Service(void)
+{
+  Servo_PollButtons();
+
+  if ((new_servo_motion_pending != 0U) &&
+      ((int32_t)(HAL_GetTick() - new_servo_motion_stop_tick) >= 0))
+  {
+    NewServo_Stop();
+  }
+
+  if ((servo_return_pending != 0U) &&
+      ((int32_t)(HAL_GetTick() - servo_return_tick) >= 0))
+  {
+    servo_return_pending = 0U;
+    if ((servo_return_mask & 0x01U) != 0U)
+    {
+      Servo_SetAngle(&htim3, TIM_CHANNEL_3, servo_return_angle);
+    }
+    if ((servo_return_mask & 0x02U) != 0U)
+    {
+      Servo_SetAngle(&htim4, TIM_CHANNEL_3, servo_return_angle);
+    }
+  }
+}
+
 static void CAN_Filter_Config(void)
 {
   CAN_FilterTypeDef filter = {0};
 
-  /* CAN1: receive ROS command frame 0x100 in FIFO0 with filter bank 0. */
+  /* CAN1: accept all frames in FIFO0 with filter bank 0. */
   filter.FilterBank = 0;
   filter.FilterMode = CAN_FILTERMODE_IDMASK;
   filter.FilterScale = CAN_FILTERSCALE_32BIT;
-  filter.FilterIdHigh = (uint16_t)(ROS_CAN_CMD_ID << 5);
+  filter.FilterIdHigh = 0x0000U;
   filter.FilterIdLow = 0x0000U;
-  filter.FilterMaskIdHigh = (uint16_t)(0x7FFU << 5);
+  filter.FilterMaskIdHigh = 0x0000U;
   filter.FilterMaskIdLow = 0x0000U;
   filter.FilterFIFOAssignment = CAN_FILTER_FIFO0;
   filter.FilterActivation = ENABLE;
@@ -137,6 +336,53 @@ static void CAN_Filter_Config(void)
   if (HAL_CAN_ConfigFilter(&hcan2, &filter) != HAL_OK)
   {
     Error_Handler();
+  }
+}
+
+static uint8_t CAN_TryStart(CAN_HandleTypeDef *hcan)
+{
+  HAL_CAN_StateTypeDef state;
+
+  if (hcan == NULL)
+  {
+    return 0U;
+  }
+
+  state = HAL_CAN_GetState(hcan);
+  if (state == HAL_CAN_STATE_LISTENING)
+  {
+    return 1U;
+  }
+
+  if ((state != HAL_CAN_STATE_READY) && (HAL_CAN_Init(hcan) != HAL_OK))
+  {
+    return 0U;
+  }
+
+  if (HAL_CAN_Start(hcan) != HAL_OK)
+  {
+    return 0U;
+  }
+
+  if (HAL_CAN_ActivateNotification(hcan, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK)
+  {
+    (void)HAL_CAN_Stop(hcan);
+    return 0U;
+  }
+
+  return 1U;
+}
+
+static void CAN_ServiceStartup(void)
+{
+  if (can1_started == 0U)
+  {
+    can1_started = CAN_TryStart(&hcan1);
+  }
+
+  if (can2_started == 0U)
+  {
+    can2_started = CAN_TryStart(&hcan2);
   }
 }
 
@@ -370,26 +616,18 @@ int main(void)
   MX_GPIO_Init();
   MX_CAN1_Init();
   MX_CAN2_Init();
+  MX_TIM1_Init();
+  MX_TIM3_Init();
+  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
+  if (Servo_Init() != HAL_OK)
+  {
+    Error_Handler();
+  }
+
   CAN_Filter_Config();
 
-  if (HAL_CAN_Start(&hcan1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_CAN_Start(&hcan2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  if (HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_CAN_ActivateNotification(&hcan2, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK)
-  {
-    Error_Handler();
-  }
+  CAN_ServiceStartup();
 
   /* USER CODE END 2 */
 
@@ -418,7 +656,7 @@ int main(void)
   /* creation of defaultTask */
   defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
   motorControlTaskHandle = osThreadNew(StartMotorControlTask, NULL, &motorControlTask_attributes);
-  statusTaskHandle = osThreadNew(StartStatusTask, NULL, &statusTask_attributes);
+  /* statusTaskHandle = osThreadNew(StartStatusTask, NULL, &statusTask_attributes); */
   heartbeatTaskHandle = osThreadNew(StartHeartbeatTask, NULL, &heartbeatTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
@@ -466,10 +704,12 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  /* Standard F407 board uses an 8 MHz HSE crystal (not the cam board's
+   * 25 MHz crystal).  8 / 8 * 144 / 2 = 72 MHz. */
   RCC_OscInitStruct.PLL.PLLM = 8;
-  RCC_OscInitStruct.PLL.PLLN = 336;
+  RCC_OscInitStruct.PLL.PLLN = 144;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-  RCC_OscInitStruct.PLL.PLLQ = 4;
+  RCC_OscInitStruct.PLL.PLLQ = 3;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -481,10 +721,10 @@ void SystemClock_Config(void)
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
   {
     Error_Handler();
   }
@@ -506,11 +746,11 @@ static void MX_CAN1_Init(void)
 
   /* USER CODE END CAN1_Init 1 */
   hcan1.Instance = CAN1;
-  hcan1.Init.Prescaler = 10;
+  hcan1.Init.Prescaler = 6;
   hcan1.Init.Mode = CAN_MODE_NORMAL;
   hcan1.Init.SyncJumpWidth = CAN_SJW_1TQ;
-  hcan1.Init.TimeSeg1 = CAN_BS1_6TQ;
-  hcan1.Init.TimeSeg2 = CAN_BS2_1TQ;
+  hcan1.Init.TimeSeg1 = CAN_BS1_9TQ;
+  hcan1.Init.TimeSeg2 = CAN_BS2_2TQ;
   hcan1.Init.TimeTriggeredMode = DISABLE;
   hcan1.Init.AutoBusOff = ENABLE;
   hcan1.Init.AutoWakeUp = DISABLE;
@@ -543,11 +783,11 @@ static void MX_CAN2_Init(void)
 
   /* USER CODE END CAN2_Init 1 */
   hcan2.Instance = CAN2;
-  hcan2.Init.Prescaler = 10;
+  hcan2.Init.Prescaler = 6;
   hcan2.Init.Mode = CAN_MODE_NORMAL;
   hcan2.Init.SyncJumpWidth = CAN_SJW_1TQ;
-  hcan2.Init.TimeSeg1 = CAN_BS1_6TQ;
-  hcan2.Init.TimeSeg2 = CAN_BS2_1TQ;
+  hcan2.Init.TimeSeg1 = CAN_BS1_9TQ;
+  hcan2.Init.TimeSeg2 = CAN_BS2_2TQ;
   hcan2.Init.TimeTriggeredMode = DISABLE;
   hcan2.Init.AutoBusOff = ENABLE;
   hcan2.Init.AutoWakeUp = DISABLE;
@@ -565,20 +805,210 @@ static void MX_CAN2_Init(void)
 }
 
 /**
+  * @brief TIM1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM1_Init(void)
+{
+
+  /* USER CODE BEGIN TIM1_Init 0 */
+
+  /* USER CODE END TIM1_Init 0 */
+
+  TIM_Encoder_InitTypeDef sConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM1_Init 1 */
+
+  /* USER CODE END TIM1_Init 1 */
+  htim1.Instance = TIM1;
+  htim1.Init.Prescaler = 0;
+  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim1.Init.Period = 65535;
+  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim1.Init.RepetitionCounter = 0;
+  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  sConfig.EncoderMode = TIM_ENCODERMODE_TI1;
+  sConfig.IC1Polarity = TIM_ICPOLARITY_RISING;
+  sConfig.IC1Selection = TIM_ICSELECTION_DIRECTTI;
+  sConfig.IC1Prescaler = TIM_ICPSC_DIV1;
+  sConfig.IC1Filter = 0;
+  sConfig.IC2Polarity = TIM_ICPOLARITY_RISING;
+  sConfig.IC2Selection = TIM_ICSELECTION_DIRECTTI;
+  sConfig.IC2Prescaler = TIM_ICPSC_DIV1;
+  sConfig.IC2Filter = 0;
+  if (HAL_TIM_Encoder_Init(&htim1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM1_Init 2 */
+
+  /* USER CODE END TIM1_Init 2 */
+
+}
+
+/**
+  * @brief TIM3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM3_Init(void)
+{
+
+  /* USER CODE BEGIN TIM3_Init 0 */
+
+  /* USER CODE END TIM3_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM3_Init 1 */
+
+  /* USER CODE END TIM3_Init 1 */
+  htim3.Instance = TIM3;
+  htim3.Init.Prescaler = 720-1;
+  htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim3.Init.Period = 2000-1;
+  htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_Init(&htim3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM3_Init 2 */
+
+  /* USER CODE END TIM3_Init 2 */
+  HAL_TIM_MspPostInit(&htim3);
+
+}
+
+/**
+  * @brief TIM4 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM4_Init(void)
+{
+
+  /* USER CODE BEGIN TIM4_Init 0 */
+
+  /* USER CODE END TIM4_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM4_Init 1 */
+
+  /* USER CODE END TIM4_Init 1 */
+  htim4.Instance = TIM4;
+  htim4.Init.Prescaler = 720-1;
+  htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim4.Init.Period = 2000-1;
+  htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim4, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_Init(&htim4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM4_Init 2 */
+
+  /* USER CODE END TIM4_Init 2 */
+  HAL_TIM_MspPostInit(&htim4);
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
   */
 static void MX_GPIO_Init(void)
 {
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
   /* USER CODE BEGIN MX_GPIO_Init_1 */
 
   /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOH_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOE_CLK_ENABLE();
+  __HAL_RCC_GPIOD_CLK_ENABLE();
+
+  /*Configure GPIO pin : PC0 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PA0 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /* Configure new-board K0/K1 pins as active-low inputs. */
+  GPIO_InitStruct.Pin = GPIO_PIN_4 | GPIO_PIN_3;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -602,7 +1032,8 @@ void StartDefaultTask(void *argument)
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+    CAN_ServiceStartup();
+    osDelay(1000U);
   }
   /* USER CODE END 5 */
 }
@@ -697,6 +1128,32 @@ void StartHeartbeatTask(void *argument)
     }
     osDelay(20U);
   }
+}
+
+/**
+  * @brief  Period elapsed callback in non blocking mode
+  * @note   This function is called  when TIM6 interrupt took place, inside
+  * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
+  * a global variable "uwTick" used as application time base.
+  * @param  htim : TIM handle
+  * @retval None
+  */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  /* USER CODE BEGIN Callback 0 */
+
+  /* USER CODE END Callback 0 */
+  if (htim->Instance == TIM6)
+  {
+    HAL_IncTick();
+    if (servo_initialized != 0U)
+    {
+      Servo_Service();
+    }
+  }
+  /* USER CODE BEGIN Callback 1 */
+
+  /* USER CODE END Callback 1 */
 }
 
 /**
