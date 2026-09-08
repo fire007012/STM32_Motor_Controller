@@ -11,6 +11,8 @@ extern "C" {
 #define ROS_CAN_STATUS_ID 0x101U
 #define ROS_CAN_ACK_ID 0x102U
 #define ROS_CAN_STATS_ID 0x103U
+#define ROS_CAN_DISTANCE_ID 0x110U
+#define ROS_CAN_SENSOR_DIAG_ID 0x111U
 
 /* ROS command frame format (8 bytes)
  * byte0: cmd

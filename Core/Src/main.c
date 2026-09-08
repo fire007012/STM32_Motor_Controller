@@ -26,6 +26,7 @@
 #include "zdt_can_driver.h"
 #include "motor_control.h"
 #include "zdt_status.h"
+#include "distance_sensor.h"
 
 /* USER CODE END Includes */
 
@@ -98,7 +99,16 @@ const osThreadAttr_t heartbeatTask_attributes = {
   .stack_size = 192 * 4,
   .priority = (osPriority_t) osPriorityAboveNormal1,
 };
+
+/* Definitions for SensorTask */
+osThreadId_t sensorTaskHandle;
+const osThreadAttr_t sensorTask_attributes = {
+  .name = "SensorTask",
+  .stack_size = 384 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
 /* USER CODE BEGIN PV */
+static osMutexId_t can1TxMutex = NULL;
 
 /* USER CODE END PV */
 
@@ -114,6 +124,7 @@ void StartDefaultTask(void *argument);
 void StartMotorControlTask(void *argument);
 void StartStatusTask(void *argument);
 void StartHeartbeatTask(void *argument);
+void StartSensorTask(void *argument);
 
 /* USER CODE BEGIN PFP */
 static void CAN_Filter_Config(void);
@@ -124,6 +135,8 @@ static void CAN1_SendStatus(uint8_t motor_idx);
 static void CAN1_SendAck(uint16_t seq, uint8_t cmd, uint8_t result);
 static void CAN1_SendStats(void);
 static void CAN1_SendEmergencyEvent(uint8_t motor_idx, uint8_t reason_code, int32_t speed_rpm);
+static void CAN1_SendDistance(const distance_sensor_sample_t *sample);
+static void CAN1_SendSensorDiag(const distance_sensor_diag_t *diagnostic);
 static HAL_StatusTypeDef Servo_Init(void);
 static void Servo_SetBoth(int16_t angle_deg);
 static void Servo_PollButtons(void);
@@ -391,7 +404,19 @@ static HAL_StatusTypeDef CAN1_TrySend(const CAN_TxHeaderTypeDef *txHeader, uint8
   uint32_t txMailbox;
   HAL_StatusTypeDef status;
 
+  if ((can1TxMutex != NULL) && (osMutexAcquire(can1TxMutex, 5U) != osOK))
+  {
+    motor_record_can1_tx_failure();
+    return HAL_BUSY;
+  }
+
   status = HAL_CAN_AddTxMessage(&hcan1, (CAN_TxHeaderTypeDef *)txHeader, txData, &txMailbox);
+
+  if (can1TxMutex != NULL)
+  {
+    (void)osMutexRelease(can1TxMutex);
+  }
+
   if (status != HAL_OK)
   {
     motor_record_can1_tx_failure();
@@ -490,6 +515,62 @@ static void CAN1_SendStatus(uint8_t motor_idx)
     (void)CAN1_TrySend(&txHeader, txData);
   }
 }
+
+static void CAN1_SendDistance(const distance_sensor_sample_t *sample)
+{
+    CAN_TxHeaderTypeDef txHeader = {0};
+    uint8_t txData[8] = {0};
+
+    if (sample == NULL)
+    {
+      return;
+    }
+
+    txData[0] = 0x01U;
+    txData[1] = sample->sensor_id;
+    txData[2] = (uint8_t)(sample->distance_mm & 0xFFU);
+    txData[3] = (uint8_t)(sample->distance_mm >> 8);
+    txData[4] = (uint8_t)(sample->sigma_mm & 0xFFU);
+    txData[5] = (uint8_t)(sample->sigma_mm >> 8);
+    txData[6] = sample->status;
+    txData[7] = sample->sequence;
+
+    txHeader.StdId = ROS_CAN_DISTANCE_ID;
+    txHeader.ExtId = 0U;
+    txHeader.IDE = CAN_ID_STD;
+    txHeader.RTR = CAN_RTR_DATA;
+    txHeader.DLC = 8U;
+    txHeader.TransmitGlobalTime = DISABLE;
+    (void)CAN1_TrySend(&txHeader, txData);
+  }
+
+static void CAN1_SendSensorDiag(const distance_sensor_diag_t *diagnostic)
+{
+    CAN_TxHeaderTypeDef txHeader = {0};
+    uint8_t txData[8] = {0};
+
+    if (diagnostic == NULL)
+    {
+      return;
+    }
+
+    txData[0] = 0x01U;
+    txData[1] = diagnostic->sensor_id;
+    txData[2] = diagnostic->error_code;
+    txData[3] = diagnostic->consecutive_error_count;
+    txData[4] = (uint8_t)(diagnostic->last_distance_mm & 0xFFU);
+    txData[5] = (uint8_t)(diagnostic->last_distance_mm >> 8);
+    txData[6] = diagnostic->status;
+    txData[7] = diagnostic->sequence;
+
+    txHeader.StdId = ROS_CAN_SENSOR_DIAG_ID;
+    txHeader.ExtId = 0U;
+    txHeader.IDE = CAN_ID_STD;
+    txHeader.RTR = CAN_RTR_DATA;
+    txHeader.DLC = 8U;
+    txHeader.TransmitGlobalTime = DISABLE;
+    (void)CAN1_TrySend(&txHeader, txData);
+  }
 
 static void CAN1_SendAck(uint16_t seq, uint8_t cmd, uint8_t result)
 {
@@ -635,7 +716,11 @@ int main(void)
   osKernelInitialize();
 
   /* USER CODE BEGIN RTOS_MUTEX */
-  /* add mutexes, ... */
+  can1TxMutex = osMutexNew(NULL);
+  if (can1TxMutex == NULL)
+  {
+    Error_Handler();
+  }
   /* USER CODE END RTOS_MUTEX */
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
@@ -650,6 +735,7 @@ int main(void)
   /* add queues, ... */
   zdt_can_driver_init(&hcan2);
   motor_control_init();
+  (void)distance_sensor_init();
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
@@ -658,6 +744,7 @@ int main(void)
   motorControlTaskHandle = osThreadNew(StartMotorControlTask, NULL, &motorControlTask_attributes);
   /* statusTaskHandle = osThreadNew(StartStatusTask, NULL, &statusTask_attributes); */
   heartbeatTaskHandle = osThreadNew(StartHeartbeatTask, NULL, &heartbeatTask_attributes);
+  sensorTaskHandle = osThreadNew(StartSensorTask, NULL, &sensorTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -1010,6 +1097,14 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
+  /* Keep all VL53L1X devices in reset until their I2C addresses are assigned. */
+  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2, GPIO_PIN_RESET);
+  GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
+
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
   /* USER CODE END MX_GPIO_Init_2 */
@@ -1127,6 +1222,41 @@ void StartHeartbeatTask(void *argument)
       timeout_latched = 0U;
     }
     osDelay(20U);
+  }
+}
+
+void StartSensorTask(void *argument)
+{
+  uint8_t i;
+  distance_sensor_sample_t sample;
+  distance_sensor_diag_t diagnostic;
+
+  (void)argument;
+  for (;;)
+  {
+    distance_sensor_poll();
+
+    for (i = 0U; i < DISTANCE_SENSOR_COUNT; i++)
+    {
+      if (distance_sensor_take_updated(i, &sample) == 1U)
+      {
+        CAN1_SendDistance(&sample);
+      }
+    }
+
+    while (distance_sensor_take_diagnostic(&diagnostic) == 1U)
+    {
+      CAN1_SendSensorDiag(&diagnostic);
+    }
+
+    if (distance_sensor_take_emergency(&sample) == 1U)
+    {
+      /* Keep the local stop active if a host tries to restart while an
+       * obstacle remains inside the hard-stop distance. */
+      (void)motor_stop_all();
+    }
+
+    osDelay(10U);
   }
 }
 
