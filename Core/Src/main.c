@@ -40,6 +40,7 @@
 #define STATUS_TASK_PERIOD_MS              20U
 #define STATUS_QUERY_BUDGET_PER_CYCLE      (MOTOR_COUNT * 3U)
 #define ROS_HEARTBEAT_TIMEOUT_FLAG         0x80U
+#define BUTTON_DEBOUNCE_SAMPLES            3U
 #define SERVO_PWM_MIN_TICKS                55U
 #define SERVO_PWM_MAX_TICKS                250U
 #define SERVO_CAN_CMD_ID                   0x700U
@@ -135,12 +136,14 @@ static void CAN1_SendStatus(uint8_t motor_idx);
 static void CAN1_SendAck(uint16_t seq, uint8_t cmd, uint8_t result);
 static void CAN1_SendStats(void);
 static void CAN1_SendEmergencyEvent(uint8_t motor_idx, uint8_t reason_code, int32_t speed_rpm);
+static void CAN1_SendButtonEvent(uint8_t event_code);
 static void CAN1_SendDistance(const distance_sensor_sample_t *sample);
 static void CAN1_SendSensorDiag(const distance_sensor_diag_t *diagnostic);
 static HAL_StatusTypeDef Servo_Init(void);
 static void Servo_SetBoth(int16_t angle_deg);
 static void Servo_PollButtons(void);
 static void Servo_Service(void);
+static void Buttons_Service(void);
 
 /* USER CODE END PFP */
 
@@ -155,6 +158,76 @@ static volatile uint32_t new_servo_motion_stop_tick = 0U;
 static volatile uint8_t servo_initialized = 0U;
 static uint8_t can1_started = 0U;
 static uint8_t can2_started = 0U;
+
+static void CAN1_SendButtonEvent(uint8_t event_code)
+{
+  CAN_TxHeaderTypeDef txHeader = {0};
+  uint8_t txData[8] = {0};
+
+  txData[0] = event_code;
+  txData[1] = ROS_BUTTON_EVENT_PRESSED;
+  txData[2] = ROS_BUTTON_SOURCE_PHYSICAL;
+
+  txHeader.StdId = ROS_CAN_BUTTON_EVENT_ID;
+  txHeader.ExtId = 0U;
+  txHeader.IDE = CAN_ID_STD;
+  txHeader.RTR = CAN_RTR_DATA;
+  txHeader.DLC = 8U;
+  txHeader.TransmitGlobalTime = DISABLE;
+
+  (void)CAN1_TrySend(&txHeader, txData);
+}
+
+static void Buttons_Service(void)
+{
+  static uint8_t start_stable = 0U;
+  static uint8_t estop_stable = 0U;
+  static uint8_t start_debounce = 0U;
+  static uint8_t estop_debounce = 0U;
+  uint8_t start_now;
+  uint8_t estop_now;
+
+  start_now = (HAL_GPIO_ReadPin(START_BUTTON_GPIO_Port, START_BUTTON_Pin) == GPIO_PIN_RESET) ? 1U : 0U;
+  estop_now = (HAL_GPIO_ReadPin(ESTOP_BUTTON_GPIO_Port, ESTOP_BUTTON_Pin) == GPIO_PIN_RESET) ? 1U : 0U;
+
+  if (start_now != start_stable)
+  {
+    if (++start_debounce >= BUTTON_DEBOUNCE_SAMPLES)
+    {
+      start_stable = start_now;
+      start_debounce = 0U;
+      if (start_stable != 0U)
+      {
+        /* Same action as ROS command 0x05: release all cached moves. */
+        motor_trigger_sync_motion();
+        CAN1_SendButtonEvent(ROS_BUTTON_EVENT_START);
+      }
+    }
+  }
+  else
+  {
+    start_debounce = 0U;
+  }
+
+  if (estop_now != estop_stable)
+  {
+    if (++estop_debounce >= BUTTON_DEBOUNCE_SAMPLES)
+    {
+      estop_stable = estop_now;
+      estop_debounce = 0U;
+      if (estop_stable != 0U)
+      {
+        (void)motor_stop_all();
+        CAN1_SendEmergencyEvent(0xFFU, ROS_EMERGENCY_REASON_LOCAL_BUTTON, 0);
+        CAN1_SendButtonEvent(ROS_BUTTON_EVENT_ESTOP);
+      }
+    }
+  }
+  else
+  {
+    estop_debounce = 0U;
+  }
+}
 
 static uint32_t Servo_AngleToPulse(int16_t angle_deg)
 {
@@ -1091,6 +1164,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
+  /* Configure physical start and emergency-stop buttons as active-low inputs. */
+  GPIO_InitStruct.Pin = START_BUTTON_Pin | ESTOP_BUTTON_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
   /* Configure new-board K0/K1 pins as active-low inputs. */
   GPIO_InitStruct.Pin = GPIO_PIN_4 | GPIO_PIN_3;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
@@ -1147,6 +1226,7 @@ void StartMotorControlTask(void *argument)
 
   for(;;)
   {
+    Buttons_Service();
     if (motor_fetch_command(&cmd, 0U) == 1U)
     {
       cmd_result = motor_apply_command(&cmd);

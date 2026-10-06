@@ -63,6 +63,13 @@ void Servo_HandleCanCommand(const uint8_t data[8]);
 
 /* USER CODE BEGIN Private defines */
 
+/* Physical control buttons: connect the other side of each button to GND.
+ * The inputs use the STM32 internal pull-up, so a pressed button reads 0. */
+#define START_BUTTON_Pin        GPIO_PIN_1
+#define START_BUTTON_GPIO_Port  GPIOC
+#define ESTOP_BUTTON_Pin        GPIO_PIN_2
+#define ESTOP_BUTTON_GPIO_Port  GPIOC
+
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

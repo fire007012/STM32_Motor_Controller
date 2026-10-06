@@ -13,6 +13,13 @@ extern "C" {
 #define ROS_CAN_STATS_ID 0x103U
 #define ROS_CAN_DISTANCE_ID 0x110U
 #define ROS_CAN_SENSOR_DIAG_ID 0x111U
+#define ROS_CAN_BUTTON_EVENT_ID 0x112U
+
+#define ROS_BUTTON_EVENT_START 0x01U
+#define ROS_BUTTON_EVENT_ESTOP 0x02U
+#define ROS_BUTTON_EVENT_PRESSED 0x01U
+#define ROS_BUTTON_SOURCE_PHYSICAL 0x01U
+#define ROS_EMERGENCY_REASON_LOCAL_BUTTON 0x81U
 
 /* ROS command frame format (8 bytes)
  * byte0: cmd
@@ -29,11 +36,20 @@ extern "C" {
  * byte2..5: value (int32 little-endian)
  * byte6: param0
  * byte7: param1
- *
- * Status frame note:
+ */
+
+/* Physical button event frame (ROS_CAN_BUTTON_EVENT_ID, standard ID 0x112):
+ *   byte0: event (0x01 start, 0x02 emergency stop)
+ *   byte1: state (0x01 pressed)
+ *   byte2: source (0x01 physical button)
+ *   byte3..7: reserved, zero
+ */
+
+/* Status frame note:
  *   type 0x03 current velocity and type 0x04 target velocity use 0.1 RPM units.
  *   type 0x06 emergency event uses byte2 as reason/status field:
  *     0x80 = ROS heartbeat timeout
+ *     0x81 = local physical emergency-stop button
  *     other values = driver status flags reported by Y42
  */
 
