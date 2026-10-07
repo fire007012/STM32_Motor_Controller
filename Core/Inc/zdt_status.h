@@ -16,8 +16,9 @@ extern "C" {
 #define ZDT_STATUS_BIT_RIGHT_LIMIT          0x20U
 #define ZDT_STATUS_BIT_POWER_LOSS           0x80U
 
-/* Hard faults that require immediate stop/event escalation. */
-#define ZDT_STATUS_FAULT_MASK               (ZDT_STATUS_BIT_STALL_PROTECT | ZDT_STATUS_BIT_POWER_LOSS)
+/* Oac_TF (bit7) defaults to 1 after power-up; it is a historical flag,
+ * not an active fault. Treating it as a fault stops every healthy motor. */
+#define ZDT_STATUS_FAULT_MASK               ZDT_STATUS_BIT_STALL_PROTECT
 
 /* Warning bits that should be observable but do not mandate estop by themselves. */
 #define ZDT_STATUS_WARNING_MASK             (ZDT_STATUS_BIT_STALL_FLAG)
@@ -26,7 +27,8 @@ extern "C" {
 #define ZDT_STATUS_INFO_MASK                (ZDT_STATUS_BIT_ENABLE_STATE | \
                                             ZDT_STATUS_BIT_POSITION_REACHED | \
                                             ZDT_STATUS_BIT_LEFT_LIMIT | \
-                                            ZDT_STATUS_BIT_RIGHT_LIMIT)
+                                            ZDT_STATUS_BIT_RIGHT_LIMIT | \
+                                            ZDT_STATUS_BIT_POWER_LOSS)
 
 typedef enum {
     ZDT_EVENT_CLASS_NONE = 0U,

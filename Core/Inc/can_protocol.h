@@ -8,6 +8,7 @@ extern "C" {
 #include "main.h"
 
 #define ROS_CAN_CMD_ID 0x100U
+#define ROS_CAN_CHASSIS_ID 0x201U
 #define ROS_CAN_STATUS_ID 0x101U
 #define ROS_CAN_ACK_ID 0x102U
 #define ROS_CAN_STATS_ID 0x103U
@@ -30,12 +31,20 @@ extern "C" {
  *   0x05 trigger sync start, value ignored
  *   0x06 set response policy, param0=1 wait-ack / 0 fire-and-forget
  *   0x07 set report mask, value[7:0]=bitmask(1 basic,2 pos,4 vel,8 target)
- *   0x08 set address map, value byte0..3 = motor0..3 slave address
+ *   0x08 set address map, value byte0..3 = motor0..3 slave address;
+ *        param0=fifth address, or 0 to preserve its current mapping
  *   0x09 heartbeat, no motion change, only refreshes ROS liveness watchdog
- * byte1: motor index 0..3 or 0xFF for all motors
+ * byte1: motor index 0..4 or 0xFF for all motors
  * byte2..5: value (int32 little-endian)
  * byte6: param0
  * byte7: param1
+ */
+
+/* Legacy chassis ID 0x201 (STD or EXT), 8 bytes:
+ * [0x01, motor_idx, int32 RPM little-endian, reserved, reserved].
+ * Uses acceleration 50 RPM/s, immediate execution and the configured address map.
+ * ACK 0x102 result=0 means accepted for transmission; driver ACK/error is
+ * forwarded separately as an extended frame. A queue rejection returns result=1.
  */
 
 /* Physical button event frame (ROS_CAN_BUTTON_EVENT_ID, standard ID 0x112):
