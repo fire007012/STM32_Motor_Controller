@@ -7,18 +7,20 @@ extern "C" {
 
 #include "main.h"
 
-/* From status command 0x3A bit field (vendor doc section 3.4.14) */
+/* From Y42 manual V1.1 section 5.5.15, status command 0x3A. */
 #define ZDT_STATUS_BIT_ENABLE_STATE         0x01U
 #define ZDT_STATUS_BIT_POSITION_REACHED     0x02U
 #define ZDT_STATUS_BIT_STALL_FLAG           0x04U
 #define ZDT_STATUS_BIT_STALL_PROTECT        0x08U
 #define ZDT_STATUS_BIT_LEFT_LIMIT           0x10U
 #define ZDT_STATUS_BIT_RIGHT_LIMIT          0x20U
+/* Oac_TF is sticky power-cycle history, DEFAULT 1, not a live fault.
+ * A normal enabled/reached motor may report 0x83. Do not clear it on the driver. */
 #define ZDT_STATUS_BIT_POWER_LOSS           0x80U
 
-/* Oac_TF (bit7) defaults to 1 after power-up; it is a historical flag,
- * not an active fault. Treating it as a fault stops every healthy motor. */
-#define ZDT_STATUS_FAULT_MASK               ZDT_STATUS_BIT_STALL_PROTECT
+/* Hard faults require immediate stop/event escalation.
+ * Oac_TF (bit7) is only power-cycle history; normal 0x83 is not a fault. */
+#define ZDT_STATUS_FAULT_MASK               (ZDT_STATUS_BIT_STALL_PROTECT)
 
 /* Warning bits that should be observable but do not mandate estop by themselves. */
 #define ZDT_STATUS_WARNING_MASK             (ZDT_STATUS_BIT_STALL_FLAG)

@@ -1,4 +1,7 @@
 build
 mx.scratch
+.settings
+.claude
+.metadata
+.vscode
 __pycache__/
-!.settings

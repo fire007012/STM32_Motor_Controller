@@ -761,6 +761,11 @@ int main(void)
 
   CAN_Filter_Config();
 
+  /* Sensor bring-up uses HAL_Delay and tick-based I2C timeouts. Initialize
+   * before any FreeRTOS object allocation: pre-scheduler critical sections
+   * can leave BASEPRI set and mask the TIM6 HAL tick until osKernelStart. */
+  (void)distance_sensor_init();
+
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -782,7 +787,6 @@ int main(void)
   can_transport_init(&hcan1, &hcan2);
   zdt_can_driver_init(&hcan2);
   motor_control_init();
-  (void)distance_sensor_init();
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
