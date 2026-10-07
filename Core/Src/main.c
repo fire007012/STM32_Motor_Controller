@@ -23,6 +23,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "can_protocol.h"
+#include "can_transport.h"
 #include "zdt_can_driver.h"
 #include "motor_control.h"
 #include "zdt_status.h"
@@ -38,7 +39,7 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define STATUS_TASK_PERIOD_MS              20U
-#define STATUS_QUERY_BUDGET_PER_CYCLE      (MOTOR_COUNT * 3U)
+#define STATUS_QUERY_BUDGET_PER_CYCLE      1U
 #define ROS_HEARTBEAT_TIMEOUT_FLAG         0x80U
 #define BUTTON_DEBOUNCE_SAMPLES            3U
 #define SERVO_PWM_MIN_TICKS                55U
@@ -109,7 +110,6 @@ const osThreadAttr_t sensorTask_attributes = {
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* USER CODE BEGIN PV */
-static osMutexId_t can1TxMutex = NULL;
 
 /* USER CODE END PV */
 
@@ -474,28 +474,7 @@ static void CAN_ServiceStartup(void)
 
 static HAL_StatusTypeDef CAN1_TrySend(const CAN_TxHeaderTypeDef *txHeader, uint8_t txData[8])
 {
-  uint32_t txMailbox;
-  HAL_StatusTypeDef status;
-
-  if ((can1TxMutex != NULL) && (osMutexAcquire(can1TxMutex, 5U) != osOK))
-  {
-    motor_record_can1_tx_failure();
-    return HAL_BUSY;
-  }
-
-  status = HAL_CAN_AddTxMessage(&hcan1, (CAN_TxHeaderTypeDef *)txHeader, txData, &txMailbox);
-
-  if (can1TxMutex != NULL)
-  {
-    (void)osMutexRelease(can1TxMutex);
-  }
-
-  if (status != HAL_OK)
-  {
-    motor_record_can1_tx_failure();
-  }
-
-  return status;
+  return can_transport_send(&hcan1, txHeader, txData);
 }
 
 static void CAN1_SendStatus(uint8_t motor_idx)
@@ -674,6 +653,7 @@ static void CAN1_SendStats(void)
   motor_set_timeout_drop_count(zdt_can_driver_get_timeout_drop_count());
   motor_set_can2_tx_fail_count(zdt_can_driver_get_tx_fail_count());
   motor_get_comm_stats(&stats);
+  stats.can1_tx_fail_count = can_transport_get_failure_count(&hcan1);
 
   txHeader.StdId = ROS_CAN_STATS_ID;
   txHeader.ExtId = 0U;
@@ -781,19 +761,12 @@ int main(void)
 
   CAN_Filter_Config();
 
-  CAN_ServiceStartup();
-
   /* USER CODE END 2 */
 
   /* Init scheduler */
   osKernelInitialize();
 
   /* USER CODE BEGIN RTOS_MUTEX */
-  can1TxMutex = osMutexNew(NULL);
-  if (can1TxMutex == NULL)
-  {
-    Error_Handler();
-  }
   /* USER CODE END RTOS_MUTEX */
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
@@ -806,6 +779,7 @@ int main(void)
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
+  can_transport_init(&hcan1, &hcan2);
   zdt_can_driver_init(&hcan2);
   motor_control_init();
   (void)distance_sensor_init();
@@ -815,12 +789,24 @@ int main(void)
   /* creation of defaultTask */
   defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
   motorControlTaskHandle = osThreadNew(StartMotorControlTask, NULL, &motorControlTask_attributes);
-  /* statusTaskHandle = osThreadNew(StartStatusTask, NULL, &statusTask_attributes); */
+  statusTaskHandle = osThreadNew(StartStatusTask, NULL, &statusTask_attributes);
   heartbeatTaskHandle = osThreadNew(StartHeartbeatTask, NULL, &heartbeatTask_attributes);
   sensorTaskHandle = osThreadNew(StartSensorTask, NULL, &sensorTask_attributes);
+  if ((defaultTaskHandle == NULL) || (motorControlTaskHandle == NULL) ||
+      (statusTaskHandle == NULL) || (heartbeatTaskHandle == NULL) || (sensorTaskHandle == NULL))
+  {
+    Error_Handler();
+  }
 
   /* USER CODE BEGIN RTOS_THREADS */
-  /* add threads, ... */
+  /* Only enable the motor bus once all command/stop tasks exist. */
+  CAN_ServiceStartup();
+  if (motor_enable_all() != HAL_OK)
+  {
+    Error_Handler();
+  }
+  motor_set_ros_alive();
+  can_transport_service();
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
@@ -916,7 +902,7 @@ static void MX_CAN1_Init(void)
   hcan1.Init.AutoWakeUp = DISABLE;
   hcan1.Init.AutoRetransmission = ENABLE;
   hcan1.Init.ReceiveFifoLocked = DISABLE;
-  hcan1.Init.TransmitFifoPriority = DISABLE;
+  hcan1.Init.TransmitFifoPriority = ENABLE;
   if (HAL_CAN_Init(&hcan1) != HAL_OK)
   {
     Error_Handler();
@@ -953,7 +939,7 @@ static void MX_CAN2_Init(void)
   hcan2.Init.AutoWakeUp = DISABLE;
   hcan2.Init.AutoRetransmission = ENABLE;
   hcan2.Init.ReceiveFifoLocked = DISABLE;
-  hcan2.Init.TransmitFifoPriority = DISABLE;
+  hcan2.Init.TransmitFifoPriority = ENABLE;
   if (HAL_CAN_Init(&hcan2) != HAL_OK)
   {
     Error_Handler();
@@ -1223,17 +1209,27 @@ void StartMotorControlTask(void *argument)
 {
   Motor_Command_t cmd;
   HAL_StatusTypeDef cmd_result;
+  uint32_t last_control_tick = HAL_GetTick() - 10U;
 
   for(;;)
   {
-    Buttons_Service();
-    if (motor_fetch_command(&cmd, 0U) == 1U)
+    uint32_t now = HAL_GetTick();
+    if ((now - last_control_tick) >= 10U)
     {
-      cmd_result = motor_apply_command(&cmd);
-      CAN1_SendAck(cmd.seq, cmd.cmd, (cmd_result == HAL_OK) ? 0U : 1U);
+      last_control_tick = now;
+      Buttons_Service();
+      /* Drain a bounded burst, with interrupts enabled between commands.
+       * Five motors at 50 Hz already exceed the old 100 commands/s limit. */
+      for (uint8_t issued = 0U; issued < MOTOR_CMD_QUEUE_LENGTH; issued++)
+      {
+        if (motor_process_next_command(&cmd, &cmd_result) == 0U) { break; }
+        CAN1_SendAck(cmd.seq, cmd.cmd, (cmd_result == HAL_OK) ? 0U : 1U);
+        can_transport_service();
+      }
     }
     zdt_can_driver_timeout_poll();
-    osDelay(10U);
+    can_transport_service();
+    osDelay(1U);
   }
 }
 

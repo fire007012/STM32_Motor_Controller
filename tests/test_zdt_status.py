@@ -18,7 +18,12 @@ class StatusClassifier(unittest.TestCase):
             # Compile the production source/header unchanged against tiny host stubs.
             shutil.copyfile(root / 'Core/Inc/zdt_status.h', tmp / 'zdt_status.h')
             shutil.copyfile(root / 'Core/Src/zdt_status.c', tmp / 'zdt_status.c')
-            (tmp / 'main.h').write_text('#include <stdint.h>\n#include <stddef.h>\n')
+            (tmp / 'main.h').write_text(
+                '#include <stdint.h>\n#include <stddef.h>\n'
+                'static uint32_t test_primask;\n'
+                'static inline uint32_t __get_PRIMASK(void) { return test_primask; }\n'
+                'static inline void __disable_irq(void) { test_primask = 1U; }\n'
+                'static inline void __enable_irq(void) { test_primask = 0U; }\n')
             (tmp / 'motor_control.h').write_text('#define MOTOR_COUNT 5U\n')
             (tmp / 'check.c').write_text(r'''#include <assert.h>
 #include "zdt_status.h"

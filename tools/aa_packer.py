@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Build ZDT AA multi-motor command payloads for STM32 `motor_send_multi_cmd()`.
+The default is Y42 X firmware; use --firmware emm for the legacy format.
 
 Example:
   python tools/aa_packer.py \
@@ -40,7 +41,7 @@ def _i32(v: int, name: str) -> int:
     return v
 
 
-def cmd_speed(addr: int, rpm: int, accel: int, sync: int) -> List[int]:
+def cmd_speed(addr: int, rpm: int, accel: int, sync: int, firmware: str = "x") -> List[int]:
     _u8(addr, "addr")
     _u8(accel, "accel")
     _u8(sync, "sync")
@@ -48,6 +49,11 @@ def cmd_speed(addr: int, rpm: int, accel: int, sync: int) -> List[int]:
 
     direction = 1 if rpm < 0 else 0
     abs_rpm = min(abs(rpm), 3000)
+    if firmware == "x":
+        speed = abs_rpm * 10
+        return [addr, 0xF6, direction, 0, accel, speed >> 8, speed & 0xFF, 1 if sync else 0, ZDT_CHECK]
+    if firmware != "emm":
+        raise BuildError(f"unknown firmware: {firmware}")
     return [
         addr,
         0xF6,
@@ -60,7 +66,7 @@ def cmd_speed(addr: int, rpm: int, accel: int, sync: int) -> List[int]:
     ]
 
 
-def cmd_position(addr: int, pulses: int, speed_rpm: int, accel: int, mode: int, sync: int) -> List[int]:
+def cmd_position(addr: int, pulses: int, speed_rpm: int, accel: int, mode: int, sync: int, firmware: str = "x") -> List[int]:
     _u8(addr, "addr")
     _u8(accel, "accel")
     _u8(mode, "mode")
@@ -70,6 +76,16 @@ def cmd_position(addr: int, pulses: int, speed_rpm: int, accel: int, mode: int, 
 
     direction = 1 if pulses < 0 else 0
     abs_pulse = abs(pulses)
+    if mode > 2:
+        raise BuildError("mode must be 0, 1 or 2")
+    if firmware == "x":
+        speed = speed_rpm * 10
+        angle = abs_pulse * 9 // 8  # 3200 legacy pulses = 3600 units of 0.1 degree
+        return [addr, 0xFB, direction, speed >> 8, speed & 0xFF,
+                (angle >> 24) & 0xFF, (angle >> 16) & 0xFF,
+                (angle >> 8) & 0xFF, angle & 0xFF, mode, 1 if sync else 0, ZDT_CHECK]
+    if firmware != "emm":
+        raise BuildError(f"unknown firmware: {firmware}")
 
     return [
         addr,
@@ -112,10 +128,10 @@ def cmd_read_status(addr: int) -> List[int]:
 def pack_aa_stream(stream: List[int]) -> List[int]:
     if not stream:
         raise BuildError("empty command stream")
-    if len(stream) > 0xFFFF:
+    if len(stream) > 92:
         raise BuildError("command stream too long")
 
-    ln = len(stream)
+    ln = len(stream) + 5  # includes broadcast address, AA, length and checksum
     return [0xAA, (ln >> 8) & 0xFF, ln & 0xFF] + stream + [ZDT_CHECK]
 
 
@@ -132,9 +148,9 @@ def build_from_args(args: argparse.Namespace) -> List[int]:
     stream: List[int] = []
 
     for item in args.speed:
-        stream.extend(cmd_speed(item[0], item[1], item[2], item[3]))
+        stream.extend(cmd_speed(item[0], item[1], item[2], item[3], args.firmware))
     for item in args.position:
-        stream.extend(cmd_position(item[0], item[1], item[2], item[3], item[4], item[5]))
+        stream.extend(cmd_position(item[0], item[1], item[2], item[3], item[4], item[5], args.firmware))
     for item in args.stop:
         stream.extend(cmd_stop(item[0], item[1]))
     for item in args.read_pos:
@@ -144,6 +160,8 @@ def build_from_args(args: argparse.Namespace) -> List[int]:
     for item in args.read_status:
         stream.extend(cmd_read_status(item[0]))
 
+    if len(stream) > 92:
+        raise BuildError("STM32 command stream limit is 92 bytes")
     if args.wrap_aa:
         return pack_aa_stream(stream)
     return stream
@@ -151,6 +169,7 @@ def build_from_args(args: argparse.Namespace) -> List[int]:
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="ZDT AA command stream packer")
+    p.add_argument("--firmware", choices=["x", "emm"], default="x", help="Motor firmware (default: x)")
 
     p.add_argument("--speed", nargs=4, action="append", metavar=("ADDR", "RPM", "ACC", "SYNC"), type=int, default=[])
     p.add_argument(

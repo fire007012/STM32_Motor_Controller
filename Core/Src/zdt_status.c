@@ -7,6 +7,18 @@ static int32_t speed_snapshot[MOTOR_COUNT] = {0};
 static uint8_t estop_pending = 0U;
 static zdt_estop_event_t estop_event = {0};
 
+static uint32_t enter_critical(void)
+{
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    return primask;
+}
+
+static void exit_critical(uint32_t primask)
+{
+    if (primask == 0U) { __enable_irq(); }
+}
+
 void zdt_status_init(void)
 {
     uint8_t i;
@@ -28,6 +40,7 @@ void zdt_status_update_status(uint8_t motor_idx, uint8_t status_flags)
         return;
     }
 
+    uint32_t primask = enter_critical();
     status_snapshot[motor_idx] = status_flags;
 
     if (zdt_status_classify(status_flags) == ZDT_EVENT_CLASS_FAULT) {
@@ -36,6 +49,7 @@ void zdt_status_update_status(uint8_t motor_idx, uint8_t status_flags)
         estop_event.speed_rpm = speed_snapshot[motor_idx];
         estop_pending = 1U;
     }
+    exit_critical(primask);
 }
 
 void zdt_status_update_speed(uint8_t motor_idx, int32_t speed_rpm)
@@ -44,17 +58,23 @@ void zdt_status_update_speed(uint8_t motor_idx, int32_t speed_rpm)
         return;
     }
 
+    uint32_t primask = enter_critical();
     speed_snapshot[motor_idx] = speed_rpm;
+    exit_critical(primask);
 }
 
 uint8_t zdt_status_take_estop_event(zdt_estop_event_t *event_out)
 {
-    if ((event_out == NULL) || (estop_pending == 0U)) {
+    if (event_out == NULL) { return 0U; }
+    uint32_t primask = enter_critical();
+    if (estop_pending == 0U) {
+        exit_critical(primask);
         return 0U;
     }
 
     *event_out = estop_event;
     estop_pending = 0U;
+    exit_critical(primask);
     return 1U;
 }
 

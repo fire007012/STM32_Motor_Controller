@@ -6,6 +6,8 @@
 Motor_State_t motors[MOTOR_COUNT] = {0};
 
 static osMessageQueueId_t motor_cmd_queue = NULL;
+static Motor_Command_t urgent_stop;
+static uint8_t urgent_stop_pending = 0U;
 static uint32_t ros_last_heartbeat_tick = 0U;
 static uint8_t motor_slave_addr[MOTOR_COUNT] = {1U, 2U, 3U, 4U, 5U};
 static uint16_t motor_speed_profile[MOTOR_COUNT] = {1000U, 1000U, 1000U, 1000U, 1000U};
@@ -16,66 +18,63 @@ static Motor_CommStats_t motor_comm_stats = {0};
 
 static int32_t rpm_to_01rpm(int32_t rpm)
 {
+    if (rpm > 3000) { rpm = 3000; }
+    if (rpm < -3000) { rpm = -3000; }
     return rpm * 10;
 }
 
 void motor_control_init(void)
 {
-    volatile uint32_t dly;
-
     if (motor_cmd_queue == NULL) {
         motor_cmd_queue = osMessageQueueNew(MOTOR_CMD_QUEUE_LENGTH, sizeof(Motor_Command_t), NULL);
     }
-    ros_last_heartbeat_tick = 0U;
-    zdt_status_init();
-    (void)dly;
-#if 0
-
-    /* 使能全部5个电机 (地址1-5) */
-    {
-        extern CAN_HandleTypeDef hcan2;
-        uint8_t i;
-        for (i = 0U; i < MOTOR_COUNT; i++) {
-            if (motor_slave_addr[i] == 0U) continue;
-            CAN_TxHeaderTypeDef th = {0};
-            uint8_t ed[8] = {0xF3U, 0xABU, 0x01U, 0x00U, 0x6BU, 0, 0, 0};
-            uint32_t tmb;
-            th.ExtId = ((uint32_t)motor_slave_addr[i] << 8) | 0U;
-            th.IDE = CAN_ID_EXT;
-            th.RTR = CAN_RTR_DATA;
-            th.DLC = 8U;
-            th.TransmitGlobalTime = DISABLE;
-            (void)HAL_CAN_AddTxMessage(&hcan2, &th, ed, &tmb);
-        }
+    if (motor_cmd_queue == NULL) {
+        Error_Handler();
     }
-    for (dly = 0U; dly < 16000000U; dly++) { __NOP(); }
-#endif
+    ros_last_heartbeat_tick = 0U;
+    urgent_stop_pending = 0U;
+    zdt_status_init();
 }
 
-void motor_configure_addresses(const uint8_t *addr_list, uint8_t count)
+HAL_StatusTypeDef motor_enable_all(void)
+{
+    uint8_t i;
+    HAL_StatusTypeDef status = HAL_OK;
+    for (i = 0U; i < MOTOR_COUNT; i++) {
+        HAL_StatusTypeDef result = zdt_motor_enable(motor_slave_addr[i], 1U, ZDT_SYNC_IMMEDIATE);
+        if (result != HAL_OK) { status = result; }
+    }
+    return status;
+}
+
+HAL_StatusTypeDef motor_configure_addresses(const uint8_t *addr_list, uint8_t count)
 {
     uint8_t i;
     uint8_t j;
 
     if ((addr_list == NULL) || (count < MOTOR_COUNT)) {
-        return;
+        return HAL_ERROR;
     }
 
     for (i = 0U; i < MOTOR_COUNT; i++) {
         if (addr_list[i] == 0U) {
-            return;
+            return HAL_ERROR;
         }
 
         for (j = (uint8_t)(i + 1U); j < MOTOR_COUNT; j++) {
             if (addr_list[i] == addr_list[j]) {
-                return;
+                return HAL_ERROR;
             }
         }
     }
 
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
     for (i = 0U; i < MOTOR_COUNT; i++) {
         motor_slave_addr[i] = addr_list[i];
     }
+    if (primask == 0U) { __enable_irq(); }
+    return HAL_OK;
 }
 
 uint8_t motor_get_address(uint8_t idx)
@@ -108,6 +107,20 @@ uint8_t motor_enqueue_command_from_isr(const Motor_Command_t *cmd)
         return 0U;
     }
 
+    /* Reserve an independent slot: a motion burst must never reject ESTOP. */
+    if (cmd->cmd == MOTOR_CMD_ESTOP) {
+        uint32_t primask = __get_PRIMASK();
+        __disable_irq();
+        if (urgent_stop_pending != 0U) {
+            if (primask == 0U) { __enable_irq(); }
+            return 0U; /* an earlier stop is already pending */
+        }
+        urgent_stop = *cmd;
+        urgent_stop_pending = 1U;
+        if (primask == 0U) { __enable_irq(); }
+        return 1U;
+    }
+
     status = osMessageQueuePut(motor_cmd_queue, cmd, 0U, 0U);
     return (status == osOK) ? 1U : 0U;
 }
@@ -120,6 +133,16 @@ uint8_t motor_fetch_command(Motor_Command_t *cmd, uint32_t timeout_ms)
         return 0U;
     }
 
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    if (urgent_stop_pending != 0U) {
+        *cmd = urgent_stop;
+        urgent_stop_pending = 0U;
+        if (primask == 0U) { __enable_irq(); }
+        return 1U;
+    }
+    if (primask == 0U) { __enable_irq(); }
+
     status = osMessageQueueGet(motor_cmd_queue, cmd, NULL, timeout_ms);
     return (status == osOK) ? 1U : 0U;
 }
@@ -130,6 +153,20 @@ uint16_t motor_allocate_cmd_seq(void)
     return motor_seq_counter;
 }
 
+uint8_t motor_process_next_command(Motor_Command_t *cmd, HAL_StatusTypeDef *result)
+{
+    uint8_t processed;
+    uint32_t primask;
+    if ((cmd == NULL) || (result == NULL)) { return 0U; }
+    primask = __get_PRIMASK();
+    __disable_irq();
+    /* A stop task cannot run between dequeue and application. */
+    processed = motor_fetch_command(cmd, 0U);
+    if (processed != 0U) { *result = motor_apply_command(cmd); }
+    if (primask == 0U) { __enable_irq(); }
+    return processed;
+}
+
 void motor_record_rx_result(uint8_t enqueue_ok)
 {
     motor_comm_stats.rx_count++;
@@ -138,56 +175,49 @@ void motor_record_rx_result(uint8_t enqueue_ok)
     }
 }
 
-void motor_set_velocity(uint8_t idx, int32_t vel)
+HAL_StatusTypeDef motor_set_velocity(uint8_t idx, int32_t vel)
 {
-    if (idx >= MOTOR_COUNT) {
-        return;
-    }
-
-    motors[idx].target_velocity = rpm_to_01rpm(vel);
-    (void)zdt_motor_set_speed(motor_slave_addr[idx], vel, motor_accel_profile[idx], ZDT_SYNC_IMMEDIATE);
+    if (idx >= MOTOR_COUNT) { return HAL_ERROR; }
+    return motor_set_velocity_ex(idx, vel, motor_accel_profile[idx], ZDT_SYNC_IMMEDIATE);
 }
 
-void motor_set_velocity_ex(uint8_t idx, int32_t vel, uint8_t accel_level, uint8_t sync_flag)
+HAL_StatusTypeDef motor_set_velocity_ex(uint8_t idx, int32_t vel, uint8_t accel_level, uint8_t sync_flag)
 {
+    HAL_StatusTypeDef status;
     if (idx >= MOTOR_COUNT) {
-        return;
+        return HAL_ERROR;
     }
-
-    motors[idx].target_velocity = rpm_to_01rpm(vel);
-    motor_accel_profile[idx] = accel_level;
-    (void)zdt_motor_set_speed(motor_slave_addr[idx], vel, accel_level, (sync_flag != 0U) ? ZDT_SYNC_CACHE : ZDT_SYNC_IMMEDIATE);
+    status = zdt_motor_set_speed(motor_slave_addr[idx], vel, accel_level, sync_flag);
+    if (status == HAL_OK) {
+        motors[idx].target_velocity = rpm_to_01rpm(vel);
+        motor_accel_profile[idx] = accel_level;
+    }
+    return status;
 }
 
-void motor_set_position(uint8_t idx, int32_t pos)
+HAL_StatusTypeDef motor_set_position(uint8_t idx, int32_t pos)
 {
-    if (idx >= MOTOR_COUNT) {
-        return;
-    }
-
-    motors[idx].target_position = pos;
-    (void)zdt_motor_set_position(motor_slave_addr[idx],
-                                 pos,
-                                 motor_speed_profile[idx],
-                                 motor_accel_profile[idx],
-                                 0U,
-                                 ZDT_SYNC_IMMEDIATE);
+    if (idx >= MOTOR_COUNT) { return HAL_ERROR; }
+    return motor_set_position_ex(idx, pos, motor_accel_profile[idx], 0U, ZDT_SYNC_IMMEDIATE);
 }
 
-void motor_set_position_ex(uint8_t idx, int32_t pos, uint8_t accel_level, uint8_t mode, uint8_t sync_flag)
+HAL_StatusTypeDef motor_set_position_ex(uint8_t idx, int32_t pos, uint8_t accel_level, uint8_t mode, uint8_t sync_flag)
 {
+    HAL_StatusTypeDef status;
     if (idx >= MOTOR_COUNT) {
-        return;
+        return HAL_ERROR;
     }
-
-    motors[idx].target_position = pos;
-    motor_accel_profile[idx] = accel_level;
-    (void)zdt_motor_set_position(motor_slave_addr[idx],
+    status = zdt_motor_set_position(motor_slave_addr[idx],
                                  pos,
                                  motor_speed_profile[idx],
                                  accel_level,
                                  mode,
                                  (sync_flag != 0U) ? ZDT_SYNC_CACHE : ZDT_SYNC_IMMEDIATE);
+    if (status == HAL_OK) {
+        motors[idx].target_position = pos;
+        motor_accel_profile[idx] = accel_level;
+    }
+    return status;
 }
 
 void motor_set_speed_profile(uint8_t idx, uint16_t speed_rpm, uint8_t accel_level)
@@ -204,9 +234,9 @@ void motor_set_speed_profile(uint8_t idx, uint16_t speed_rpm, uint8_t accel_leve
     motor_accel_profile[idx] = accel_level;
 }
 
-void motor_trigger_sync_motion(void)
+HAL_StatusTypeDef motor_trigger_sync_motion(void)
 {
-    (void)zdt_trigger_sync_start();
+    return zdt_trigger_sync_start();
 }
 
 HAL_StatusTypeDef motor_send_multi_cmd(const uint8_t *cmd_stream, uint16_t stream_len)
@@ -227,15 +257,23 @@ HAL_StatusTypeDef motor_stop_all(void)
 {
     uint8_t i;
     HAL_StatusTypeDef status = HAL_OK;
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+
+    /* Remove older motion and reads before enqueuing stop commands. */
+    zdt_can_driver_cancel();
+    urgent_stop_pending = 0U;
+    if (motor_cmd_queue != NULL) {
+        (void)osMessageQueueReset(motor_cmd_queue);
+    }
 
     for (i = 0U; i < MOTOR_COUNT; i++) {
         motors[i].target_velocity = 0;
-        if (zdt_motor_stop(motor_slave_addr[i], ZDT_SYNC_IMMEDIATE) != HAL_OK) {
-            status = HAL_ERROR;
-            motor_record_stop_failure();
-        }
     }
-
+    /* A broadcast stop needs no ACK and cannot be held behind a missing motor. */
+    status = zdt_motor_stop(0U, ZDT_SYNC_IMMEDIATE);
+    if (status != HAL_OK) { motor_record_stop_failure(); }
+    if (primask == 0U) { __enable_irq(); }
     return status;
 }
 
@@ -282,6 +320,7 @@ static void motor_velocity_read_cb(uint8_t slave, int32_t vel)
 void motor_update_status(uint8_t max_requests)
 {
     static uint8_t motor_idx = 0U;
+    static uint8_t query_type = 0U;
     uint8_t issued = 0U;
     HAL_StatusTypeDef status;
 
@@ -289,36 +328,19 @@ void motor_update_status(uint8_t max_requests)
         return;
     }
 
-    while (issued < max_requests) {
-        status = zdt_read_motor_status(motor_slave_addr[motor_idx], motor_status_read_cb);
-        if (status != HAL_OK) {
-            break;
+    while ((issued < max_requests) && (zdt_can_driver_is_busy() == 0U)) {
+        switch (query_type) {
+            case 0U: status = zdt_read_motor_status(motor_slave_addr[motor_idx], motor_status_read_cb); break;
+            case 1U: status = zdt_read_realtime_position(motor_slave_addr[motor_idx], motor_position_read_cb); break;
+            default: status = zdt_read_realtime_speed(motor_slave_addr[motor_idx], motor_velocity_read_cb); break;
         }
-
+        if (status != HAL_OK) { break; }
         issued++;
-        if (issued >= max_requests) {
+        query_type++;
+        if (query_type >= 3U) {
+            query_type = 0U;
             motor_idx = (uint8_t)((motor_idx + 1U) % MOTOR_COUNT);
-            break;
         }
-
-        status = zdt_read_realtime_position(motor_slave_addr[motor_idx], motor_position_read_cb);
-        if (status != HAL_OK) {
-            break;
-        }
-
-        issued++;
-        if (issued >= max_requests) {
-            motor_idx = (uint8_t)((motor_idx + 1U) % MOTOR_COUNT);
-            break;
-        }
-
-        status = zdt_read_realtime_speed(motor_slave_addr[motor_idx], motor_velocity_read_cb);
-        if (status != HAL_OK) {
-            break;
-        }
-
-        issued++;
-        motor_idx = (uint8_t)((motor_idx + 1U) % MOTOR_COUNT);
     }
 }
 
@@ -334,14 +356,22 @@ HAL_StatusTypeDef motor_apply_command(const Motor_Command_t *cmd)
     motor_comm_stats.last_seq = cmd->seq;
     motor_comm_stats.last_cmd = cmd->cmd;
 
+    if (((cmd->cmd == MOTOR_CMD_SET_VELOCITY) || (cmd->cmd == MOTOR_CMD_SET_POSITION) ||
+         (cmd->cmd == MOTOR_CMD_SET_PROFILE)) &&
+        (cmd->motor_idx >= MOTOR_COUNT) && (cmd->motor_idx != 0xFFU)) {
+        status = HAL_ERROR;
+        goto record_result;
+    }
+
     switch (cmd->cmd) {
         case MOTOR_CMD_SET_VELOCITY:
             if (cmd->motor_idx == 0xFFU) {
                 for (i = 0U; i < MOTOR_COUNT; i++) {
-                    motor_set_velocity_ex(i, cmd->value, cmd->param0, cmd->param1);
+                    HAL_StatusTypeDef result = motor_set_velocity_ex(i, cmd->value, cmd->param0, cmd->param1);
+                    if (result != HAL_OK) { status = result; }
                 }
             } else {
-                motor_set_velocity_ex(cmd->motor_idx, cmd->value, cmd->param0, cmd->param1);
+                status = motor_set_velocity_ex(cmd->motor_idx, cmd->value, cmd->param0, cmd->param1);
             }
             break;
 
@@ -352,14 +382,15 @@ HAL_StatusTypeDef motor_apply_command(const Motor_Command_t *cmd)
         case MOTOR_CMD_SET_POSITION:
             if (cmd->motor_idx == 0xFFU) {
                 for (i = 0U; i < MOTOR_COUNT; i++) {
-                    motor_set_position_ex(i,
+                    HAL_StatusTypeDef result = motor_set_position_ex(i,
                                           cmd->value,
                                           cmd->param0,
                                           (uint8_t)(cmd->param1 & 0x03U),
                                           (uint8_t)((cmd->param1 >> 2) & 0x01U));
+                    if (result != HAL_OK) { status = result; }
                 }
             } else {
-                motor_set_position_ex(cmd->motor_idx,
+                status = motor_set_position_ex(cmd->motor_idx,
                                       cmd->value,
                                       cmd->param0,
                                       (uint8_t)(cmd->param1 & 0x03U),
@@ -368,6 +399,7 @@ HAL_StatusTypeDef motor_apply_command(const Motor_Command_t *cmd)
             break;
 
         case MOTOR_CMD_SET_PROFILE:
+            if ((cmd->value < 0) || (cmd->value > 3000)) { status = HAL_ERROR; break; }
             if (cmd->motor_idx == 0xFFU) {
                 for (i = 0U; i < MOTOR_COUNT; i++) {
                     motor_set_speed_profile(i, (uint16_t)cmd->value, cmd->param0);
@@ -378,7 +410,7 @@ HAL_StatusTypeDef motor_apply_command(const Motor_Command_t *cmd)
             break;
 
         case MOTOR_CMD_SYNC_START:
-            motor_trigger_sync_motion();
+            status = motor_trigger_sync_motion();
             break;
 
         case MOTOR_CMD_SET_RESPONSE_POLICY:
@@ -398,7 +430,10 @@ HAL_StatusTypeDef motor_apply_command(const Motor_Command_t *cmd)
             addr_map[1] = (uint8_t)((raw >> 8) & 0xFFU);
             addr_map[2] = (uint8_t)((raw >> 16) & 0xFFU);
             addr_map[3] = (uint8_t)((raw >> 24) & 0xFFU);
-            motor_configure_addresses(addr_map, MOTOR_COUNT);
+            /* Legacy frames carry four addresses. param0=0 preserves motor4;
+             * a nonzero param0 explicitly supplies its fifth address. */
+            addr_map[4] = (cmd->param0 != 0U) ? cmd->param0 : motor_get_address(4U);
+            status = motor_configure_addresses(addr_map, MOTOR_COUNT);
             break;
         }
 
@@ -410,6 +445,7 @@ HAL_StatusTypeDef motor_apply_command(const Motor_Command_t *cmd)
             break;
     }
 
+record_result:
     if (status == HAL_OK) {
         motor_comm_stats.exec_ok_count++;
         motor_comm_stats.last_result = 0U;
@@ -454,7 +490,10 @@ void motor_get_comm_stats(Motor_CommStats_t *stats_out)
         return;
     }
 
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
     *stats_out = motor_comm_stats;
+    if (primask == 0U) { __enable_irq(); }
 }
 
 void motor_set_timeout_drop_count(uint32_t timeout_drop_count)

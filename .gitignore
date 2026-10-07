@@ -4,3 +4,4 @@ mx.scratch
 .claude
 .metadata
 .vscode
+__pycache__/

@@ -18,7 +18,8 @@ extern "C" {
  * A normal enabled/reached motor may report 0x83. Do not clear it on the driver. */
 #define ZDT_STATUS_BIT_POWER_LOSS           0x80U
 
-/* Hard faults that require immediate stop/event escalation. */
+/* Hard faults require immediate stop/event escalation.
+ * Oac_TF (bit7) is only power-cycle history; normal 0x83 is not a fault. */
 #define ZDT_STATUS_FAULT_MASK               (ZDT_STATUS_BIT_STALL_PROTECT)
 
 /* Warning bits that should be observable but do not mandate estop by themselves. */

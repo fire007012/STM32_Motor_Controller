@@ -46,6 +46,7 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
     Core/Src/can_protocol.c
+    Core/Src/can_transport.c
     Core/Src/zdt_can_driver.c
     Core/Src/motor_control.c
     Core/Src/zdt_status.c

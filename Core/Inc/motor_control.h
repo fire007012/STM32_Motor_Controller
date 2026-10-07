@@ -67,19 +67,21 @@ typedef struct {
 extern Motor_State_t motors[MOTOR_COUNT];
 
 void motor_control_init(void);
-void motor_configure_addresses(const uint8_t *addr_list, uint8_t count);
+HAL_StatusTypeDef motor_enable_all(void);
+HAL_StatusTypeDef motor_configure_addresses(const uint8_t *addr_list, uint8_t count);
 uint8_t motor_get_address(uint8_t idx);
 uint8_t motor_enqueue_command_from_isr(const Motor_Command_t *cmd);
 uint8_t motor_fetch_command(Motor_Command_t *cmd, uint32_t timeout_ms);
+uint8_t motor_process_next_command(Motor_Command_t *cmd, HAL_StatusTypeDef *result);
 uint16_t motor_allocate_cmd_seq(void);
 void motor_record_rx_result(uint8_t enqueue_ok);
 
-void motor_set_velocity(uint8_t idx, int32_t vel);
-void motor_set_velocity_ex(uint8_t idx, int32_t vel, uint8_t accel_level, uint8_t sync_flag);
-void motor_set_position(uint8_t idx, int32_t pos);
-void motor_set_position_ex(uint8_t idx, int32_t pos, uint8_t accel_level, uint8_t mode, uint8_t sync_flag);
+HAL_StatusTypeDef motor_set_velocity(uint8_t idx, int32_t vel);
+HAL_StatusTypeDef motor_set_velocity_ex(uint8_t idx, int32_t vel, uint8_t accel_level, uint8_t sync_flag);
+HAL_StatusTypeDef motor_set_position(uint8_t idx, int32_t pos);
+HAL_StatusTypeDef motor_set_position_ex(uint8_t idx, int32_t pos, uint8_t accel_level, uint8_t mode, uint8_t sync_flag);
 void motor_set_speed_profile(uint8_t idx, uint16_t speed_rpm, uint8_t accel_level);
-void motor_trigger_sync_motion(void);
+HAL_StatusTypeDef motor_trigger_sync_motion(void);
 HAL_StatusTypeDef motor_send_multi_cmd(const uint8_t *cmd_stream, uint16_t stream_len);
 void motor_set_response_policy(uint8_t wait_ack);
 HAL_StatusTypeDef motor_stop_all(void);

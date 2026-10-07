@@ -24,6 +24,7 @@
 /* USER CODE BEGIN Includes */
 #include "can_protocol.h"
 #include "zdt_can_driver.h"
+#include "can_transport.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -60,7 +61,6 @@ extern CAN_HandleTypeDef hcan2;
 static void forward_can2_to_can1(const CAN_RxHeaderTypeDef *rxHeader, const uint8_t rxData[8])
 {
   CAN_TxHeaderTypeDef txHeader = {0};
-  uint32_t txMailbox;
 
   if (rxHeader == NULL)
   {
@@ -84,7 +84,7 @@ static void forward_can2_to_can1(const CAN_RxHeaderTypeDef *rxHeader, const uint
   txHeader.DLC = rxHeader->DLC;
   txHeader.TransmitGlobalTime = DISABLE;
 
-  (void)HAL_CAN_AddTxMessage(&hcan1, &txHeader, (uint8_t *)rxData, &txMailbox);
+  (void)can_transport_send(&hcan1, &txHeader, rxData);
 }
 /* USER CODE END 0 */
 
@@ -221,21 +221,23 @@ void CAN2_RX0_IRQHandler(void)
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
 {
   CAN_RxHeaderTypeDef rxHeader;
-  uint8_t rxData[8];
+  uint8_t rxData[8] = {0};
 
-  if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &rxHeader, rxData) != HAL_OK)
+  while (HAL_CAN_GetRxFifoFillLevel(hcan, CAN_RX_FIFO0) != 0U)
   {
-    return;
-  }
-
-  if (hcan == &hcan1)
-  {
-    CAN1_RxCallback(rxHeader, rxData);
-  }
-  else if (hcan == &hcan2)
-  {
-    zdt_can_driver_process_response(rxHeader, rxData);
-    forward_can2_to_can1(&rxHeader, rxData);
+    if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &rxHeader, rxData) != HAL_OK)
+    {
+      break;
+    }
+    if (hcan == &hcan1)
+    {
+      CAN1_RxCallback(rxHeader, rxData);
+    }
+    else if (hcan == &hcan2)
+    {
+      zdt_can_driver_process_response(rxHeader, rxData);
+      forward_can2_to_can1(&rxHeader, rxData);
+    }
   }
 }
 

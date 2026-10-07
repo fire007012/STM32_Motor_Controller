@@ -14,7 +14,7 @@ extern "C" {
 
 #define ZDT_CMD_MOTOR_ENABLE                 0xF3U
 #define ZDT_CMD_SPEED_MODE                   0xF6U
-#define ZDT_CMD_POSITION_MODE                0xFDU
+#define ZDT_CMD_POSITION_MODE                0xFBU
 #define ZDT_CMD_EMERGENCY_STOP               0xFEU
 #define ZDT_CMD_SYNC_TRIGGER                 0xFFU
 
@@ -35,6 +35,8 @@ typedef enum {
 } zdt_response_policy_t;
 
 void zdt_can_driver_init(CAN_HandleTypeDef *hcan_bus);
+void zdt_can_driver_cancel(void);
+uint8_t zdt_can_driver_is_busy(void);
 
 HAL_StatusTypeDef zdt_motor_enable(uint8_t slave, uint8_t enable, uint8_t sync_flag);
 HAL_StatusTypeDef zdt_motor_set_speed(uint8_t slave, int32_t speed_rpm, uint8_t accel_level, uint8_t sync_flag);
