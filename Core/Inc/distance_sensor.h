@@ -7,6 +7,14 @@ extern "C" {
 
 #include "main.h"
 
+/* HC-SR04 front sensor wiring.  Change these two definitions if the module is
+ * connected to different GPIOs.  TRIG is a 3.3 V output; the ECHO line must
+ * be level-shifted to 3.3 V when using a 5 V HC-SR04 supply. */
+#define HC_SR04_TRIG_GPIO_Port           GPIOE
+#define HC_SR04_TRIG_Pin                 GPIO_PIN_0
+#define HC_SR04_ECHO_GPIO_Port           GPIOA
+#define HC_SR04_ECHO_Pin                 GPIO_PIN_1
+
 #define DISTANCE_SENSOR_COUNT 3U
 
 #define DISTANCE_SENSOR_STATUS_VALID        0x01U
