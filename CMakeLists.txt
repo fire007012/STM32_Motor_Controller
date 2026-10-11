@@ -51,6 +51,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/motor_control.c
     Core/Src/zdt_status.c
     Core/Src/distance_sensor.c
+    Core/Src/arm_servo.c
 )
 
 # Add include paths

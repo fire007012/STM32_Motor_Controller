@@ -28,6 +28,7 @@
 #include "motor_control.h"
 #include "zdt_status.h"
 #include "distance_sensor.h"
+#include "arm_servo.h"
 
 /* USER CODE END Includes */
 
@@ -50,10 +51,7 @@
 #define SERVO_BOARD_CAM                     2U
 #define SERVO_ACTIVE_BOARD                  SERVO_BOARD_STANDARD
 #define SERVO_STARTUP_ANGLE                 180
-#define SERVO_NEW_STOP_TICKS                150U /* 1.50 ms neutral; calibrate if needed */
-#define SERVO_NEW_CCW_TICKS                 55U  /* 0.55 ms */
-#define SERVO_NEW_CW_TICKS                  250U /* 2.50 ms */
-#define SERVO_NEW_MOVE_MS                   235U /* measured approximately 180 degrees */
+
 
 /* USER CODE END PD */
 
@@ -153,8 +151,6 @@ static volatile uint8_t servo_return_pending = 0U;
 static volatile uint8_t servo_return_angle = 0U;
 static volatile uint8_t servo_return_mask = 0U;
 static volatile uint32_t servo_return_tick = 0U;
-static volatile uint8_t new_servo_motion_pending = 0U;
-static volatile uint32_t new_servo_motion_stop_tick = 0U;
 static volatile uint8_t servo_initialized = 0U;
 static uint8_t can1_started = 0U;
 static uint8_t can2_started = 0U;
@@ -254,26 +250,11 @@ static void Servo_SetBoth(int16_t angle_deg)
   Servo_SetAngle(&htim4, TIM_CHANNEL_3, angle_deg);
 }
 
-static void NewServo_Stop(void)
-{
-  __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_3, SERVO_NEW_STOP_TICKS);
-  new_servo_motion_pending = 0U;
-}
-
-static void NewServo_Rotate(uint8_t clockwise)
-{
-  __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_3,
-                        clockwise ? SERVO_NEW_CW_TICKS : SERVO_NEW_CCW_TICKS);
-  new_servo_motion_stop_tick = HAL_GetTick() + SERVO_NEW_MOVE_MS;
-  new_servo_motion_pending = 1U;
-}
-
 static HAL_StatusTypeDef Servo_Init(void)
 {
-  /* Both drug-box servos start synchronously at the safe neutral position.
-   * This also gives RESET a deterministic 90-degree behavior. */
-  Servo_SetAngle(&htim3, TIM_CHANNEL_3, SERVO_STARTUP_ANGLE);
-  NewServo_Stop();
+  /* Both drug-box servos are positional SG90s. RESET commands the same
+   * calibrated 180-degree endpoint on PB0 and PD14 and keeps PWM active. */
+  Servo_SetBoth(SERVO_STARTUP_ANGLE);
 
   if (HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3) != HAL_OK)
   {
@@ -337,15 +318,22 @@ void Servo_HandleCanCommand(const uint8_t data[8])
 
 static void Servo_PollButtons(void)
 {
-  static uint8_t k0_stable = 0U, k1_stable = 0U, wkup_stable = 0U;
-  static uint8_t k0_debounce = 0U, k1_debounce = 0U, wkup_debounce = 0U;
+#if (ARM_SERVO_KEY_TEST_ENABLE != 0U)
+  ArmServo_PollButtons(
+      HAL_GPIO_ReadPin(GPIOE, GPIO_PIN_4) == GPIO_PIN_RESET,
+      HAL_GPIO_ReadPin(GPIOE, GPIO_PIN_3) == GPIO_PIN_RESET);
+#else
+  static uint8_t k0_stable = 0U, k1_stable = 0U;
+  static uint8_t k0_debounce = 0U, k1_debounce = 0U;
   uint8_t k0_now = 0U, k1_now = 0U;
-  uint8_t wkup_now = (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET) ? 1U : 0U;
 
 #if (SERVO_ACTIVE_BOARD == SERVO_BOARD_STANDARD)
   k0_now = (HAL_GPIO_ReadPin(GPIOE, GPIO_PIN_4) == GPIO_PIN_RESET) ? 1U : 0U;
   k1_now = (HAL_GPIO_ReadPin(GPIOE, GPIO_PIN_3) == GPIO_PIN_RESET) ? 1U : 0U;
 #else
+  static uint8_t wkup_stable = 0U;
+  static uint8_t wkup_debounce = 0U;
+  uint8_t wkup_now = (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET) ? 1U : 0U;
   k0_now = (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_0) == GPIO_PIN_SET) ? 1U : 0U;
 #endif
 
@@ -358,25 +346,20 @@ static void Servo_PollButtons(void)
   } else { (counter) = 0U; } \
 } while (0)
 #if (SERVO_ACTIVE_BOARD == SERVO_BOARD_STANDARD)
-  SERVO_DEBOUNCE(k0_now, k0_stable, k0_debounce, (Servo_SetAngle(&htim3, TIM_CHANNEL_3, 0), NewServo_Rotate(0U)));
-  SERVO_DEBOUNCE(k1_now, k1_stable, k1_debounce, (Servo_SetAngle(&htim3, TIM_CHANNEL_3, 180), NewServo_Rotate(1U)));
-  /* WK_UP intentionally unused in this first continuous-servo test. */
+  SERVO_DEBOUNCE(k0_now, k0_stable, k0_debounce, (servo_return_pending = 0U, Servo_SetBoth(0)));
+  SERVO_DEBOUNCE(k1_now, k1_stable, k1_debounce, (servo_return_pending = 0U, Servo_SetBoth(180)));
+  /* WK_UP is not used by this positional-servo test. */
 #else
   SERVO_DEBOUNCE(k0_now, k0_stable, k0_debounce, Servo_SetBoth(180));
   SERVO_DEBOUNCE(wkup_now, wkup_stable, wkup_debounce, Servo_SetBoth(0));
 #endif
 #undef SERVO_DEBOUNCE
+#endif
 }
 
 static void Servo_Service(void)
 {
   Servo_PollButtons();
-
-  if ((new_servo_motion_pending != 0U) &&
-      ((int32_t)(HAL_GetTick() - new_servo_motion_stop_tick) >= 0))
-  {
-    NewServo_Stop();
-  }
 
   if ((servo_return_pending != 0U) &&
       ((int32_t)(HAL_GetTick() - servo_return_tick) >= 0))
@@ -758,6 +741,15 @@ int main(void)
   {
     Error_Handler();
   }
+
+  /* Two DS3230MG outputs start at calibrated logical zero. TIM8 CH3/4
+   * are configured but disabled. Keep the SG90 outputs on TIM3/TIM4. */
+#if (ARM_SERVO_KEY_TEST_ENABLE != 0U)
+  if (ArmServo_Init() != HAL_OK)
+  {
+    Error_Handler();
+  }
+#endif
 
   CAN_Filter_Config();
 
