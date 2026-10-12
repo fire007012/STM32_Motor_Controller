@@ -35,6 +35,13 @@ class StartupOrder(unittest.TestCase):
             with self.subTest(operation=operation):
                 self.assertLess(main.index(operation), sensor)
 
+    def test_remote_arm_init_is_not_disabled_by_local_key_selection(self):
+        main = main_body()
+        arm = main.index('ArmServo_Init()')
+        self.assertLess(main.index('Servo_Init()'), arm)
+        self.assertLess(arm, main.index('distance_sensor_init()'))
+        self.assertNotIn('ARM_SERVO_KEY_TEST_ENABLE', main)
+
     def test_can_and_transport_remain_after_rtos_queue_setup(self):
         main = main_body()
         self.assertLess(main.index('can_transport_init('), main.index('CAN_ServiceStartup()'))

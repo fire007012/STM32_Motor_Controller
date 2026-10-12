@@ -2,6 +2,9 @@
 
 #include "can_transport.h"
 #include "motor_control.h"
+#include "arm_servo_protocol.h"
+
+extern uint8_t ArmServo_HandleCanCommand(const uint8_t data[8]);
 
 extern CAN_HandleTypeDef hcan1;
 extern CAN_HandleTypeDef hcan2;
@@ -34,6 +37,19 @@ static void enqueue_command(Motor_Command_t *cmd)
     }
 }
 
+static void send_servo_ack(uint32_t id, uint8_t code, const uint8_t request[8], uint8_t result)
+{
+    CAN_TxHeaderTypeDef header = {0};
+    uint8_t data[8] = {code, request[6], result, request[0], request[1], 0U, 0U, 0U};
+    uint8_t i;
+    header.ExtId = id;
+    header.IDE = CAN_ID_EXT;
+    header.RTR = CAN_RTR_DATA;
+    header.DLC = 8U;
+    for (i = 0U; i < 7U; ++i) data[7] = (uint8_t)(data[7] + data[i]);
+    (void)can_transport_send(&hcan1, &header, data);
+}
+
 void CAN1_RxCallback(CAN_RxHeaderTypeDef rxHeader, uint8_t rxData[8])
 {
     Motor_Command_t cmd = {0};
@@ -44,6 +60,25 @@ void CAN1_RxCallback(CAN_RxHeaderTypeDef rxHeader, uint8_t rxData[8])
         return;
     }
     id = (rxHeader.IDE == CAN_ID_EXT) ? rxHeader.ExtId : rxHeader.StdId;
+
+    /* Local PWM commands must never be forwarded to the old Y42 bus. */
+    if ((rxHeader.IDE == CAN_ID_EXT) && (id == ARM_SERVO_CAN_ID)) {
+        if (rxHeader.DLC == 8U) {
+            uint8_t result = ArmServo_HandleCanCommand(rxData);
+            if (result == 0U) {
+                if (rxData[0] == ARM_SERVO_CMD_RELEASE) Servo_ReleaseLocalControl();
+                else Servo_AcquireRemoteControl();
+            }
+            send_servo_ack(ARM_SERVO_ACK_ID, ARM_SERVO_ACK_CODE, rxData, result);
+        }
+        return;
+    }
+    if ((rxHeader.IDE == CAN_ID_EXT) && (id == 0x700U) &&
+        (rxHeader.DLC == 8U) && (rxData[0] == POSITION_SERVO_CMD)) {
+        send_servo_ack(POSITION_SERVO_ACK_ID, POSITION_SERVO_ACK_CODE, rxData,
+                       Servo_HandlePositionCanCommand(rxData));
+        return;
+    }
 
     if ((rxHeader.IDE == CAN_ID_EXT) && (id == 0x700U) &&
         (rxHeader.DLC == 8U) && (rxData[0] == 0x20U)) {
@@ -67,6 +102,8 @@ void CAN1_RxCallback(CAN_RxHeaderTypeDef rxHeader, uint8_t rxData[8])
     }
 
     if (rxHeader.IDE == CAN_ID_EXT) {
+        /* Removed arm Y42 IDs must not be driven by stale ROS nodes. */
+        if (((id >> 8) == 5U) || ((id >> 8) == 6U)) return;
         CAN_TxHeaderTypeDef header = {0};
         HAL_StatusTypeDef status;
         header.ExtId = rxHeader.ExtId;

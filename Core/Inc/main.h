@@ -55,6 +55,9 @@ void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
+void Servo_AcquireRemoteControl(void);
+void Servo_ReleaseLocalControl(void);
+uint8_t Servo_HandlePositionCanCommand(const uint8_t data[8]);
 void Servo_HandleCanCommand(const uint8_t data[8]);
 
 /* USER CODE END EFP */
