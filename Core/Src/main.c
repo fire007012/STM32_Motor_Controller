@@ -134,7 +134,7 @@ static void CAN1_SendStatus(uint8_t motor_idx);
 static void CAN1_SendAck(uint16_t seq, uint8_t cmd, uint8_t result);
 static void CAN1_SendStats(void);
 static void CAN1_SendEmergencyEvent(uint8_t motor_idx, uint8_t reason_code, int32_t speed_rpm);
-static void CAN1_SendButtonEvent(uint8_t event_code);
+static void CAN1_SendButtonEvent(uint8_t event_code, uint8_t result, uint16_t seq);
 static void CAN1_SendDistance(const distance_sensor_sample_t *sample);
 static void CAN1_SendSensorDiag(const distance_sensor_diag_t *diagnostic);
 static HAL_StatusTypeDef Servo_Init(void);
@@ -156,7 +156,7 @@ static volatile uint8_t servo_initialized = 0U;
 static uint8_t can1_started = 0U;
 static uint8_t can2_started = 0U;
 
-static void CAN1_SendButtonEvent(uint8_t event_code)
+static void CAN1_SendButtonEvent(uint8_t event_code, uint8_t result, uint16_t seq)
 {
   CAN_TxHeaderTypeDef txHeader = {0};
   uint8_t txData[8] = {0};
@@ -164,6 +164,9 @@ static void CAN1_SendButtonEvent(uint8_t event_code)
   txData[0] = event_code;
   txData[1] = ROS_BUTTON_EVENT_PRESSED;
   txData[2] = ROS_BUTTON_SOURCE_PHYSICAL;
+  txData[3] = result;
+  txData[4] = (uint8_t)(seq >> 8);
+  txData[5] = (uint8_t)(seq & 0xFFU);
 
   txHeader.StdId = ROS_CAN_BUTTON_EVENT_ID;
   txHeader.ExtId = 0U;
@@ -177,6 +180,7 @@ static void CAN1_SendButtonEvent(uint8_t event_code)
 
 static void Buttons_Service(void)
 {
+  static uint8_t initialized = 0U;
   static uint8_t start_stable = 0U;
   static uint8_t estop_stable = 0U;
   static uint8_t start_debounce = 0U;
@@ -187,6 +191,15 @@ static void Buttons_Service(void)
   start_now = (HAL_GPIO_ReadPin(START_BUTTON_GPIO_Port, START_BUTTON_Pin) == GPIO_PIN_RESET) ? 1U : 0U;
   estop_now = (HAL_GPIO_ReadPin(ESTOP_BUTTON_GPIO_Port, ESTOP_BUTTON_Pin) == GPIO_PIN_RESET) ? 1U : 0U;
 
+  /* Ignore a start key held through reset, while still checking a held
+   * emergency-stop input on the first service cycle. */
+  if (initialized == 0U)
+  {
+    start_stable = start_now;
+    estop_stable = 0U;
+    initialized = 1U;
+  }
+
   if (start_now != start_stable)
   {
     if (++start_debounce >= BUTTON_DEBOUNCE_SAMPLES)
@@ -195,9 +208,20 @@ static void Buttons_Service(void)
       start_debounce = 0U;
       if (start_stable != 0U)
       {
-        /* Same action as ROS command 0x05: release all cached moves. */
-        motor_trigger_sync_motion();
-        CAN1_SendButtonEvent(ROS_BUTTON_EVENT_START);
+        uint16_t seq = 0U;
+        uint8_t accepted = 0U;
+
+        /* ROS owns the heartbeat and motion cache.  The local key only adds
+         * an ordered sync marker after commands already accepted by firmware. */
+        if ((estop_now == 0U) && (estop_stable == 0U) &&
+            (motor_is_ros_ready(500U) != 0U))
+        {
+          seq = motor_allocate_cmd_seq();
+          accepted = motor_request_local_sync_start(seq);
+        }
+        CAN1_SendButtonEvent(ROS_BUTTON_EVENT_START,
+                             (accepted != 0U) ? ROS_BUTTON_RESULT_ACCEPTED : ROS_BUTTON_RESULT_REJECTED,
+                             (accepted != 0U) ? seq : 0U);
       }
     }
   }
@@ -216,7 +240,8 @@ static void Buttons_Service(void)
       {
         (void)motor_stop_all();
         CAN1_SendEmergencyEvent(0xFFU, ROS_EMERGENCY_REASON_LOCAL_BUTTON, 0);
-        CAN1_SendButtonEvent(ROS_BUTTON_EVENT_ESTOP);
+        CAN1_SendButtonEvent(ROS_BUTTON_EVENT_ESTOP,
+                             ROS_BUTTON_RESULT_ACCEPTED, 0U);
       }
     }
   }
@@ -838,7 +863,7 @@ int main(void)
   {
     Error_Handler();
   }
-  motor_set_ros_alive();
+  motor_set_ros_startup_grace();
   can_transport_service();
   /* USER CODE END RTOS_THREADS */
 
@@ -1265,6 +1290,11 @@ void StartMotorControlTask(void *argument)
       {
         if (motor_process_next_command(&cmd, &cmd_result) == 0U) { break; }
         CAN1_SendAck(cmd.seq, cmd.cmd, (cmd_result == HAL_OK) ? 0U : 1U);
+        if ((cmd.source == MOTOR_CMD_SOURCE_LOCAL_BUTTON) && (cmd_result != HAL_OK))
+        {
+          CAN1_SendButtonEvent(ROS_BUTTON_EVENT_START,
+                               ROS_BUTTON_RESULT_EXECUTION_FAILED, cmd.seq);
+        }
         can_transport_service();
       }
     }

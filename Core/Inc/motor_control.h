@@ -10,6 +10,8 @@ extern "C" {
 
 #define MOTOR_COUNT                         4U /* chassis only; former arm IDs 5/6 are PWM */
 #define MOTOR_CMD_QUEUE_LENGTH              16U
+#define MOTOR_CMD_SOURCE_REMOTE             0U
+#define MOTOR_CMD_SOURCE_LOCAL_BUTTON       1U
 
 typedef struct {
     int32_t target_velocity;
@@ -62,6 +64,7 @@ typedef struct {
     uint8_t param0;
     uint8_t param1;
     uint16_t seq;
+    uint8_t source;
 } Motor_Command_t;
 
 extern Motor_State_t motors[MOTOR_COUNT];
@@ -71,6 +74,7 @@ HAL_StatusTypeDef motor_enable_all(void);
 HAL_StatusTypeDef motor_configure_addresses(const uint8_t *addr_list, uint8_t count);
 uint8_t motor_get_address(uint8_t idx);
 uint8_t motor_enqueue_command_from_isr(const Motor_Command_t *cmd);
+uint8_t motor_request_local_sync_start(uint16_t seq);
 uint8_t motor_fetch_command(Motor_Command_t *cmd, uint32_t timeout_ms);
 uint8_t motor_process_next_command(Motor_Command_t *cmd, HAL_StatusTypeDef *result);
 uint16_t motor_allocate_cmd_seq(void);
@@ -89,7 +93,9 @@ void motor_update_status(uint8_t max_requests);
 
 HAL_StatusTypeDef motor_apply_command(const Motor_Command_t *cmd);
 void motor_set_ros_alive(void);
+void motor_set_ros_startup_grace(void);
 uint8_t motor_is_ros_timeout(uint32_t timeout_ms);
+uint8_t motor_is_ros_ready(uint32_t timeout_ms);
 void motor_set_report_mask(uint8_t report_mask);
 uint8_t motor_get_report_mask(void);
 void motor_get_comm_stats(Motor_CommStats_t *stats_out);
