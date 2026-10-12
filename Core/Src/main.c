@@ -858,14 +858,9 @@ int main(void)
   }
 
   /* USER CODE BEGIN RTOS_THREADS */
-  /* Only enable the motor bus once all command/stop tasks exist. */
-  CAN_ServiceStartup();
-  if (motor_enable_all() != HAL_OK)
-  {
-    Error_Handler();
-  }
-  motor_set_ros_startup_grace();
-  can_transport_service();
+  /* CAN startup and motor enable run from StartDefaultTask after the
+   * scheduler owns the HAL tick.  HAL_CAN_Start() has a tick-based wait and
+   * must not run in this pre-scheduler path. */
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
