@@ -222,6 +222,9 @@ static void hc_process_sample(void)
         hc_sample.status = DISTANCE_SENSOR_STATUS_OUT_OF_RANGE;
         hc_diagnostic_pending = 1U;
         hc_diagnostic_error_code = 2U;
+        if (hc_consecutive_error_count != 0xFFU) {
+            hc_consecutive_error_count++;
+        }
     }
     hc_updated = 1U;
 }
@@ -784,6 +787,9 @@ static void vl53_process_ready_sample(vl53l1x_sensor_t *sensor)
 
     sensor->sample.sensor_id = (uint8_t)(sensor - sensors);
     sensor->sample.timestamp_ms = HAL_GetTick();
+    /* A range result with poor quality or an out-of-range value is still a
+     * completed measurement.  Only a missing result should age into timeout. */
+    sensor->last_sample_tick = sensor->sample.timestamp_ms;
     sensor->sample.sigma_mm = 0xFFFFU;
     sensor->sample.sequence++;
     sensor->sequence = sensor->sample.sequence;
@@ -815,12 +821,18 @@ static void vl53_process_ready_sample(vl53l1x_sensor_t *sensor)
             sensor->sample.status = DISTANCE_SENSOR_STATUS_OUT_OF_RANGE;
             sensor->diagnostic_pending = 1U;
             sensor->diagnostic_error_code = 2U;
+            if (sensor->consecutive_error_count != 0xFFU) {
+                sensor->consecutive_error_count++;
+            }
         }
     } else {
         sensor->sample.distance_mm = 0xFFFFU;
         sensor->sample.status = DISTANCE_SENSOR_STATUS_LOW_QUALITY;
         sensor->diagnostic_pending = 1U;
         sensor->diagnostic_error_code = raw_status;
+        if (sensor->consecutive_error_count != 0xFFU) {
+            sensor->consecutive_error_count++;
+        }
     }
 
     sensor->updated = 1U;
