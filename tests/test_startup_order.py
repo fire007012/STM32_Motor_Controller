@@ -13,7 +13,7 @@ def main_body():
     text = (ROOT / 'Core/Src/main.c').read_text(encoding='utf-8')
     text = re.sub(r'/\*.*?\*/|//[^\n]*', '', text, flags=re.S)
     start = text.index('int main(void)')
-    return text[start:text.index('void SystemClock_Config(void)', start)]
+    return text[start:]
 
 
 class StartupOrder(unittest.TestCase):
@@ -23,7 +23,7 @@ class StartupOrder(unittest.TestCase):
         sensor = main.index('distance_sensor_init()')
         # Queue/task creation may mask the low-priority HAL tick before scheduling.
         for operation in ['osKernelInitialize()', 'motor_control_init()', 'osThreadNew(',
-                          'motor_enable_all()', 'osKernelStart()']:
+                          'osKernelStart()']:
             with self.subTest(operation=operation):
                 self.assertLess(sensor, main.index(operation))
 
@@ -44,9 +44,10 @@ class StartupOrder(unittest.TestCase):
 
     def test_can_and_transport_remain_after_rtos_queue_setup(self):
         main = main_body()
-        self.assertLess(main.index('can_transport_init('), main.index('CAN_ServiceStartup()'))
-        self.assertLess(main.index('motor_control_init()'), main.index('CAN_ServiceStartup()'))
-        self.assertLess(main.index('CAN_ServiceStartup()'), main.index('osKernelStart()'))
+        self.assertLess(main.index('can_transport_init('), main.index('osKernelStart()'))
+        self.assertLess(main.index('motor_control_init()'), main.index('osKernelStart()'))
+        self.assertGreater(main.index('CAN_ServiceStartup()'), main.index('osKernelStart()'))
+        self.assertGreater(main.index('motor_enable_all()'), main.index('osKernelStart()'))
 
 
 if __name__ == '__main__':

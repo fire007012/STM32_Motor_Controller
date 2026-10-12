@@ -155,6 +155,7 @@ static volatile uint8_t servo_remote_owned = 0U;
 static volatile uint8_t servo_initialized = 0U;
 static uint8_t can1_started = 0U;
 static uint8_t can2_started = 0U;
+static uint8_t can_motors_enabled = 0U;
 
 static void CAN1_SendButtonEvent(uint8_t event_code)
 {
@@ -832,14 +833,9 @@ int main(void)
   }
 
   /* USER CODE BEGIN RTOS_THREADS */
-  /* Only enable the motor bus once all command/stop tasks exist. */
-  CAN_ServiceStartup();
-  if (motor_enable_all() != HAL_OK)
-  {
-    Error_Handler();
-  }
-  motor_set_ros_alive();
-  can_transport_service();
+  /* CAN startup calls HAL_CAN_Start(), which may wait on HAL_GetTick().
+   * Run it from the scheduler-owned default task, after the FreeRTOS tick
+   * is active; starting it here can deadlock before osKernelStart(). */
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
@@ -1234,6 +1230,16 @@ void StartDefaultTask(void *argument)
   for(;;)
   {
     CAN_ServiceStartup();
+    if ((can1_started != 0U) && (can2_started != 0U) &&
+        (can_motors_enabled == 0U))
+    {
+      if (motor_enable_all() != HAL_OK)
+      {
+        Error_Handler();
+      }
+      can_motors_enabled = 1U;
+      motor_set_ros_alive();
+    }
     osDelay(1000U);
   }
   /* USER CODE END 5 */
