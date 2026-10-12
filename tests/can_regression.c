@@ -354,6 +354,43 @@ static void test_sync_timeout_and_stop(void)
     puts("PASS sync ordering, no motion replay, bounded read retry and stop cancels stale work");
 }
 
+static void test_local_sync_ordering_and_ros_gate(void)
+{
+    Motor_Command_t queued = {
+        .cmd = MOTOR_CMD_SET_POSITION,
+        .motor_idx = 0U,
+        .value = 3200,
+        .param0 = 50U,
+        .param1 = 4U,
+        .source = MOTOR_CMD_SOURCE_REMOTE
+    };
+    Motor_Command_t executed = {0};
+    HAL_StatusTypeDef result;
+
+    reset();
+    motor_set_ros_startup_grace();
+    assert(motor_is_ros_ready(500U) == 0U);
+    assert(motor_request_local_sync_start(0x1234U) == 0U);
+
+    motor_set_ros_alive();
+    assert(motor_is_ros_ready(500U) == 1U);
+    assert(motor_enqueue_command_from_isr(&queued) == 1U);
+    assert(motor_request_local_sync_start(0x1234U) == 1U);
+
+    assert(motor_process_next_command(&executed, &result) == 1U);
+    assert(executed.cmd == MOTOR_CMD_SET_POSITION);
+    assert(executed.source == MOTOR_CMD_SOURCE_REMOTE);
+    assert(motor_process_next_command(&executed, &result) == 1U);
+    assert(executed.cmd == MOTOR_CMD_SYNC_START);
+    assert(executed.source == MOTOR_CMD_SOURCE_LOCAL_BUTTON);
+    assert(executed.seq == 0x1234U);
+
+    assert(motor_request_local_sync_start(0x1235U) == 1U);
+    assert(motor_stop_all() == HAL_OK);
+    assert(motor_process_next_command(&executed, &result) == 0U);
+    puts("PASS local sync waits behind ROS commands, requires ROS activity and is canceled by stop");
+}
+
 static void test_polling_and_faults(void)
 {
     const uint8_t functions[4] = {0x3A, 0x36, 0x35, 0x3A};
@@ -605,6 +642,7 @@ int main(void)
     test_mailbox_backpressure();
     test_routing_and_mapping();
     test_sync_timeout_and_stop();
+    test_local_sync_ordering_and_ros_gate();
     test_polling_and_faults();
     test_bidirectional_bridge_and_rejection();
     test_aa_bounds_and_length();

@@ -21,6 +21,9 @@ extern "C" {
 #define ROS_BUTTON_EVENT_PRESSED 0x01U
 #define ROS_BUTTON_SOURCE_PHYSICAL 0x01U
 #define ROS_EMERGENCY_REASON_LOCAL_BUTTON 0x81U
+#define ROS_BUTTON_RESULT_ACCEPTED 0x00U
+#define ROS_BUTTON_RESULT_REJECTED 0x01U
+#define ROS_BUTTON_RESULT_EXECUTION_FAILED 0x02U
 
 /* ROS command frame format (8 bytes)
  * byte0: cmd
@@ -51,7 +54,15 @@ extern "C" {
  *   byte0: event (0x01 start, 0x02 emergency stop)
  *   byte1: state (0x01 pressed)
  *   byte2: source (0x01 physical button)
- *   byte3..7: reserved, zero
+ *   byte3: result (0 accepted, 1 rejected, 2 execution failed)
+ *   byte4..5: local command sequence, big-endian; zero when no command was queued
+ *   byte6..7: reserved, zero
+ * A start result of 0 is only queue acceptance.  ROS should correlate the
+ * same sequence in the normal 0x102 ACK to learn whether firmware accepted
+ * the sync trigger; the local start request is canceled by any emergency stop.
+ * Because 0x102 has higher CAN arbitration priority than 0x112, ACK and event
+ * frames may arrive in either order. ROS should pause adding new synchronized
+ * motion commands until the local start ACK is received.
  */
 
 /* Status frame note:

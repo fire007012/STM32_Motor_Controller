@@ -8,7 +8,10 @@ Motor_State_t motors[MOTOR_COUNT] = {0};
 static osMessageQueueId_t motor_cmd_queue = NULL;
 static Motor_Command_t urgent_stop;
 static uint8_t urgent_stop_pending = 0U;
+static Motor_Command_t local_sync_start;
+static uint8_t local_sync_start_pending = 0U;
 static uint32_t ros_last_heartbeat_tick = 0U;
+static uint8_t ros_heartbeat_seen = 0U;
 static uint8_t motor_slave_addr[MOTOR_COUNT] = {1U, 2U, 3U, 4U};
 static uint16_t motor_speed_profile[MOTOR_COUNT] = {1000U, 1000U, 1000U, 1000U};
 static uint8_t motor_accel_profile[MOTOR_COUNT] = {10U, 10U, 10U, 10U};
@@ -32,7 +35,9 @@ void motor_control_init(void)
         Error_Handler();
     }
     ros_last_heartbeat_tick = 0U;
+    ros_heartbeat_seen = 0U;
     urgent_stop_pending = 0U;
+    local_sync_start_pending = 0U;
     zdt_status_init();
 }
 
@@ -125,6 +130,33 @@ uint8_t motor_enqueue_command_from_isr(const Motor_Command_t *cmd)
     return (status == osOK) ? 1U : 0U;
 }
 
+uint8_t motor_request_local_sync_start(uint16_t seq)
+{
+    uint32_t primask = __get_PRIMASK();
+
+    if (motor_is_ros_ready(500U) == 0U) {
+        return 0U;
+    }
+
+    __disable_irq();
+    if (local_sync_start_pending != 0U) {
+        if (primask == 0U) { __enable_irq(); }
+        return 0U;
+    }
+
+    local_sync_start.cmd = MOTOR_CMD_SYNC_START;
+    local_sync_start.motor_idx = 0xFFU;
+    local_sync_start.value = 0;
+    local_sync_start.param0 = 0U;
+    local_sync_start.param1 = 0U;
+    local_sync_start.seq = seq;
+    local_sync_start.source = MOTOR_CMD_SOURCE_LOCAL_BUTTON;
+    local_sync_start_pending = 1U;
+
+    if (primask == 0U) { __enable_irq(); }
+    return 1U;
+}
+
 uint8_t motor_fetch_command(Motor_Command_t *cmd, uint32_t timeout_ms)
 {
     osStatus_t status;
@@ -149,8 +181,15 @@ uint8_t motor_fetch_command(Motor_Command_t *cmd, uint32_t timeout_ms)
 
 uint16_t motor_allocate_cmd_seq(void)
 {
+    uint32_t primask = __get_PRIMASK();
+    uint16_t seq;
+
+    __disable_irq();
     motor_seq_counter++;
-    return motor_seq_counter;
+    if (motor_seq_counter == 0U) { motor_seq_counter++; }
+    seq = motor_seq_counter;
+    if (primask == 0U) { __enable_irq(); }
+    return seq;
 }
 
 uint8_t motor_process_next_command(Motor_Command_t *cmd, HAL_StatusTypeDef *result)
@@ -162,6 +201,11 @@ uint8_t motor_process_next_command(Motor_Command_t *cmd, HAL_StatusTypeDef *resu
     __disable_irq();
     /* A stop task cannot run between dequeue and application. */
     processed = motor_fetch_command(cmd, 0U);
+    if ((processed == 0U) && (local_sync_start_pending != 0U)) {
+        *cmd = local_sync_start;
+        local_sync_start_pending = 0U;
+        processed = 1U;
+    }
     if (processed != 0U) { *result = motor_apply_command(cmd); }
     if (primask == 0U) { __enable_irq(); }
     return processed;
@@ -263,6 +307,7 @@ HAL_StatusTypeDef motor_stop_all(void)
     /* Remove older motion and reads before enqueuing stop commands. */
     zdt_can_driver_cancel();
     urgent_stop_pending = 0U;
+    local_sync_start_pending = 0U;
     if (motor_cmd_queue != NULL) {
         (void)osMessageQueueReset(motor_cmd_queue);
     }
@@ -457,12 +502,26 @@ record_result:
 void motor_set_ros_alive(void)
 {
     ros_last_heartbeat_tick = HAL_GetTick();
+    ros_heartbeat_seen = 1U;
+}
+
+void motor_set_ros_startup_grace(void)
+{
+    ros_last_heartbeat_tick = HAL_GetTick();
 }
 
 uint8_t motor_is_ros_timeout(uint32_t timeout_ms)
 {
     uint32_t now = HAL_GetTick();
     return ((now - ros_last_heartbeat_tick) > timeout_ms) ? 1U : 0U;
+}
+
+uint8_t motor_is_ros_ready(uint32_t timeout_ms)
+{
+    if (ros_heartbeat_seen == 0U) {
+        return 0U;
+    }
+    return (motor_is_ros_timeout(timeout_ms) == 0U) ? 1U : 0U;
 }
 
 void motor_set_report_mask(uint8_t report_mask)

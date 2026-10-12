@@ -124,6 +124,7 @@ void CAN1_RxCallback(CAN_RxHeaderTypeDef rxHeader, uint8_t rxData[8])
     cmd.value = parse_int32_le(rxData);
     cmd.param0 = rxData[6];
     cmd.param1 = rxData[7];
+    cmd.source = MOTOR_CMD_SOURCE_REMOTE;
 
     if ((cmd.cmd < MOTOR_CMD_SET_VELOCITY) || (cmd.cmd > MOTOR_CMD_HEARTBEAT)) {
         return;
