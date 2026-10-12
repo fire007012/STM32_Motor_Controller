@@ -155,6 +155,7 @@ static volatile uint8_t servo_remote_owned = 0U;
 static volatile uint8_t servo_initialized = 0U;
 static uint8_t can1_started = 0U;
 static uint8_t can2_started = 0U;
+static uint8_t can_motors_enabled = 0U;
 
 static void CAN1_SendButtonEvent(uint8_t event_code, uint8_t result, uint16_t seq)
 {
@@ -1259,6 +1260,16 @@ void StartDefaultTask(void *argument)
   for(;;)
   {
     CAN_ServiceStartup();
+    if ((can1_started != 0U) && (can2_started != 0U) &&
+        (can_motors_enabled == 0U))
+    {
+      if (motor_enable_all() != HAL_OK)
+      {
+        Error_Handler();
+      }
+      can_motors_enabled = 1U;
+      motor_set_ros_alive();
+    }
     osDelay(1000U);
   }
   /* USER CODE END 5 */
