@@ -41,6 +41,10 @@ typedef struct {uint32_t Prescaler,CounterMode,Period,ClockDivision,RepetitionCo
 typedef struct {void *Instance;TIM_Base_InitTypeDef Init;} TIM_HandleTypeDef;
 typedef struct {uint32_t Pin,Mode,Pull,Speed,Alternate;} GPIO_InitTypeDef;
 typedef struct {uint32_t OCMode,Pulse,OCPolarity,OCNPolarity,OCFastMode,OCIdleState,OCNIdleState;} TIM_OC_InitTypeDef;
+extern uint32_t fake_primask;
+static inline uint32_t __get_PRIMASK(void){return fake_primask;}
+static inline void __disable_irq(void){fake_primask=1;}
+static inline void __enable_irq(void){fake_primask=0;}
 extern uint32_t fake_compare[4];
 extern unsigned fake_clock_flags;
 #define __HAL_RCC_TIM8_CLK_ENABLE() (fake_clock_flags|=1U)

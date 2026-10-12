@@ -68,6 +68,11 @@ HAL_StatusTypeDef HAL_CAN_GetRxMessage(CAN_HandleTypeDef *bus, uint32_t fifo,
 }
 void HAL_CAN_IRQHandler(CAN_HandleTypeDef *bus) { (void)bus; }
 void HAL_TIM_IRQHandler(TIM_HandleTypeDef *timer) { (void)timer; }
+static unsigned arm_servo_count;
+uint8_t ArmServo_HandleCanCommand(const uint8_t data[8]) { (void)data; arm_servo_count++; return 0U; }
+void Servo_AcquireRemoteControl(void) {}
+void Servo_ReleaseLocalControl(void) {}
+uint8_t Servo_HandlePositionCanCommand(const uint8_t data[8]) { (void)data; servo_count++; return 0U; }
 void Servo_HandleCanCommand(const uint8_t data[8]) { (void)data; servo_count++; }
 void Error_Handler(void) { abort(); }
 
@@ -106,7 +111,7 @@ osStatus_t osMessageQueueReset(osMessageQueueId_t queue)
 
 static void reset(void)
 {
-    const uint8_t addresses[5] = {1U, 2U, 3U, 4U, 5U};
+    const uint8_t addresses[4] = {1U, 2U, 3U, 4U};
     test_primask = tick = 0U;
     memset(sent_count, 0, sizeof(sent_count));
     memset(fail_next, 0, sizeof(fail_next));
@@ -119,7 +124,7 @@ static void reset(void)
     can_transport_init(&hcan1, &hcan2);
     zdt_can_driver_init(&hcan2);
     motor_control_init();
-    assert(motor_configure_addresses(addresses, 5U) == HAL_OK);
+    assert(motor_configure_addresses(addresses, MOTOR_COUNT) == HAL_OK);
 }
 
 static void drain(void)
@@ -160,12 +165,12 @@ static void test_startup_and_lengths(void)
     const uint8_t ack[] = {0xF3, 2, 0x6B};
     reset();
     assert(motor_enable_all() == HAL_OK);
-    for (address = 1U; address <= 5U; address++) {
+    for (address = 1U; address <= MOTOR_COUNT; address++) {
         drain();
         expect_frame(1, address - 1U, address << 8, enable, sizeof(enable));
         reply((uint8_t)address, ack, sizeof(ack));
     }
-    assert(sent_count[1] == 5U);
+    assert(sent_count[1] == MOTOR_COUNT);
     assert(zdt_can_driver_is_busy() == 0U);
 
     reset();
@@ -176,7 +181,7 @@ static void test_startup_and_lengths(void)
     expect_frame(1, 0, 0, (uint8_t[]){0xFE, 0x98, 0, 0x6B}, 4);
     expect_frame(1, 1, 0, (uint8_t[]){0xFF, 0x66, 0x6B}, 3);
     expect_frame(1, 2, 0x100, (uint8_t[]){0x3A, 0x6B}, 2);
-    puts("PASS startup enables five motors; exact short-command DLC");
+    puts("PASS startup enables only four chassis motors; exact short-command DLC");
 }
 
 static void test_x_motion_encoding(void)
@@ -253,7 +258,7 @@ static void test_mailbox_backpressure(void)
 static void test_routing_and_mapping(void)
 {
     CAN_RxHeaderTypeDef header = {0};
-    uint8_t data[8] = {1, 4, 100, 0, 0, 0, 0, 0};
+    uint8_t data[8] = {1, 3, 100, 0, 0, 0, 0, 0};
     Motor_Command_t cmd;
     unsigned ide;
     reset();
@@ -264,12 +269,12 @@ static void test_routing_and_mapping(void)
         header.DLC = 8;
         CAN1_RxCallback(header, data);
         assert(motor_fetch_command(&cmd, 0) == 1U);
-        assert(cmd.motor_idx == 4U && cmd.param0 == 50U);
+        assert(cmd.motor_idx == 3U && cmd.param0 == 50U);
         assert(motor_apply_command(&cmd) == HAL_OK);
     }
     drain();
-    expect_frame(1, 0, 0x500, (uint8_t[]){0xF6, 0, 0, 50, 3, 0xE8, 0, 0x6B}, 8);
-    expect_frame(1, 1, 0x500, (uint8_t[]){0xF6, 0, 0, 50, 3, 0xE8, 0, 0x6B}, 8);
+    expect_frame(1, 0, 0x400, (uint8_t[]){0xF6, 0, 0, 50, 3, 0xE8, 0, 0x6B}, 8);
+    expect_frame(1, 1, 0x400, (uint8_t[]){0xF6, 0, 0, 50, 3, 0xE8, 0, 0x6B}, 8);
     tick = 501;
     header.DLC = 3;
     CAN1_RxCallback(header, data);
@@ -284,14 +289,13 @@ static void test_routing_and_mapping(void)
     assert(command_count == 0U);
 
     cmd = (Motor_Command_t){.cmd = MOTOR_CMD_SET_ADDRESS_MAP, .value = 0x04030201};
-    assert(motor_apply_command(&cmd) == HAL_OK && motor_get_address(4) == 5);
-    cmd.param0 = 9;
-    assert(motor_apply_command(&cmd) == HAL_OK && motor_get_address(4) == 9);
-    cmd.param0 = 4;
-    assert(motor_apply_command(&cmd) == HAL_ERROR && motor_get_address(4) == 9);
+    assert(motor_apply_command(&cmd) == HAL_OK && motor_get_address(3) == 4);
+    assert(motor_get_address(4) == 0);
+    cmd.value = 0x04030301;
+    assert(motor_apply_command(&cmd) == HAL_ERROR && motor_get_address(3) == 4);
     cmd.value = 0x04030001;
     assert(motor_apply_command(&cmd) == HAL_ERROR && motor_get_address(1) == 2);
-    puts("PASS standard/extended 0x201 routing, fifth motor, malformed frames and address-map validation");
+    puts("PASS standard/extended 0x201 routing, fourth chassis motor, malformed frames and address-map validation");
 }
 
 static void test_sync_timeout_and_stop(void)
@@ -527,7 +531,7 @@ static void test_continuous_multi_motor_bursts(void)
     reset();
     zdt_set_response_policy(ZDT_RESPONSE_FIRE_AND_FORGET);
     motor_get_comm_stats(&before);
-    /* Five motors at 50 Hz: 250 commands/s, beyond the previous 100/s drain. */
+    /* Four motors at 50 Hz: 200 commands/s, beyond the previous 100/s drain. */
     for (unsigned cycle = 0; cycle < 50; cycle++) {
         tick = cycle * 20U;
         for (unsigned motor = 0; motor < MOTOR_COUNT; motor++) {
@@ -543,9 +547,9 @@ static void test_continuous_multi_motor_bursts(void)
         assert(processed == MOTOR_COUNT && command_count == 0U);
     }
     motor_get_comm_stats(&after);
-    assert(after.exec_ok_count - before.exec_ok_count == 250U);
-    assert(after.exec_fail_count == before.exec_fail_count && sent_count[1] == 250U);
-    puts("PASS five-motor 50 Hz command bursts without queue accumulation");
+    assert(after.exec_ok_count - before.exec_ok_count == 50U * MOTOR_COUNT);
+    assert(after.exec_fail_count == before.exec_fail_count && sent_count[1] == 50U * MOTOR_COUNT);
+    puts("PASS four-motor 50 Hz command bursts without queue accumulation");
 }
 
 static void test_fault_event_handoff_and_irq_mask(void)
@@ -566,8 +570,31 @@ static void test_fault_event_handoff_and_irq_mask(void)
     puts("PASS atomic fault-event handoff and preserved caller interrupt mask");
 }
 
+static void test_local_pwm_ack_routing(void)
+{
+    reset();
+    arm_servo_count = 0U;
+    CAN_RxHeaderTypeDef header = {.ExtId = 0x701, .IDE = CAN_ID_EXT, .DLC = 8};
+    uint8_t data[8] = {0x21,3,150,0,0,0,42,0};
+    for (unsigned i = 0; i < 7; ++i) data[7] += data[i];
+    CAN1_RxCallback(header, data);drain();
+    assert(arm_servo_count == 1 && sent_count[1] == 0);
+    expect_frame(0,0,0x702,(uint8_t[]){0xA1,42,0,0x21,3,0,0,0xEF},8);
+    header.DLC=7;CAN1_RxCallback(header,data);drain();
+    assert(arm_servo_count==1 && sent_count[0]==1 && sent_count[1]==0);
+    header.DLC=8;header.ExtId=0x700;data[0]=0x22;
+    CAN1_RxCallback(header,data);drain();
+    assert(servo_count==1 && sent_count[1]==0 && sent[0][1].header.ExtId==0x703);
+    header.ExtId=0x500;CAN1_RxCallback(header,data);header.ExtId=0x600;CAN1_RxCallback(header,data);drain();
+    assert(sent_count[1]==0);
+    header.IDE=CAN_ID_STD;header.StdId=0x201;data[0]=1;data[1]=4;
+    CAN1_RxCallback(header,data);assert(command_count==0);
+    puts("PASS local paired PWM ACK routing, reserved channel rejection and removed Y42 IDs never forwarded");
+}
+
 int main(void)
 {
+    test_local_pwm_ack_routing();
     test_estop_when_command_queue_full();
     test_pending_survives_transport_full();
     test_response_timeout_waits_for_transmission();

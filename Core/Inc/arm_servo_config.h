@@ -1,12 +1,12 @@
 #ifndef ARM_SERVO_CONFIG_H
 #define ARM_SERVO_CONFIG_H
 
-/* Local DS3230MG test only. 0 restores the SG90 K0/K1 test.
- * ROS/CAN arm commands are not connected to this driver yet. */
+/* K0/K1 selection: 1=DS3230MG, 0=SG90. Both PWM and CAN drivers stay
+ * initialized in either mode. Remote arm ownership blocks local arm keys. */
 #define ARM_SERVO_KEY_TEST_ENABLE       1U //测试sg90 0为sg90
 #define ARM_SERVO_CHANNEL_COUNT         4U
 #define ARM_SERVO_ACTIVE_COUNT          2U
-#define ARM_SERVO_STEP_DEG              5
+#define ARM_SERVO_STEP_DEG              5  //每次转多少度
 #define ARM_SERVO_FRAME_US              20000U
 
 /* Confirm your DS3230MG's 180/270-degree variant before powered testing.

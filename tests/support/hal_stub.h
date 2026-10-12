@@ -44,6 +44,9 @@ HAL_StatusTypeDef HAL_CAN_GetRxMessage(CAN_HandleTypeDef *bus, uint32_t fifo,
                                       CAN_RxHeaderTypeDef *header, uint8_t data[8]);
 void HAL_CAN_IRQHandler(CAN_HandleTypeDef *bus);
 void HAL_TIM_IRQHandler(TIM_HandleTypeDef *timer);
+void Servo_AcquireRemoteControl(void);
+void Servo_ReleaseLocalControl(void);
+uint8_t Servo_HandlePositionCanCommand(const uint8_t data[8]);
 void Servo_HandleCanCommand(const uint8_t data[8]);
 void Error_Handler(void);
 

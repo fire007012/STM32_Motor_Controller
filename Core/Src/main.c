@@ -151,6 +151,7 @@ static volatile uint8_t servo_return_pending = 0U;
 static volatile uint8_t servo_return_angle = 0U;
 static volatile uint8_t servo_return_mask = 0U;
 static volatile uint32_t servo_return_tick = 0U;
+static volatile uint8_t servo_remote_owned = 0U;
 static volatile uint8_t servo_initialized = 0U;
 static uint8_t can1_started = 0U;
 static uint8_t can2_started = 0U;
@@ -283,12 +284,26 @@ static uint8_t Servo_ChecksumOk(const uint8_t data[8])
   return (sum == data[7]) ? 1U : 0U;
 }
 
+uint8_t Servo_HandlePositionCanCommand(const uint8_t data[8])
+{
+  if ((data == NULL) || (data[0] != POSITION_SERVO_CMD) || !Servo_ChecksumOk(data) ||
+      (data[1] == 0U) || ((data[1] & ~0x03U) != 0U) || data[4] || data[5]) return 1U;
+  if (!servo_initialized) return 3U;
+  if (((data[1] & 1U) && data[2] > 180U) ||
+      ((data[1] & 2U) && data[3] > 180U)) return 2U;
+  servo_return_pending = 0U;
+  servo_remote_owned = 1U;
+  if (data[1] & 1U) Servo_SetAngle(&htim3, TIM_CHANNEL_3, data[2]);
+  if (data[1] & 2U) Servo_SetAngle(&htim4, TIM_CHANNEL_3, data[3]);
+  return 0U;
+}
+
 void Servo_HandleCanCommand(const uint8_t data[8])
 {
   uint16_t hold_ms;
   uint32_t now;
 
-  if ((data == NULL) || (data[0] != SERVO_CAN_CMD_CODE) || (Servo_ChecksumOk(data) == 0U))
+  if (servo_remote_owned || (data == NULL) || (data[0] != SERVO_CAN_CMD_CODE) || (Servo_ChecksumOk(data) == 0U))
   {
     return;
   }
@@ -315,6 +330,30 @@ void Servo_HandleCanCommand(const uint8_t data[8])
     servo_return_pending = 1U;
   }
 }
+
+void Servo_AcquireRemoteControl(void)
+{
+  servo_return_pending = 0U;
+  servo_remote_owned = 1U;
+}
+
+void Servo_ReleaseLocalControl(void)
+{
+  servo_remote_owned = 0U;
+}
+
+#if (ARM_SERVO_KEY_TEST_ENABLE == 0U)
+static void Servo_SetLocalBoth(int16_t angle)
+{
+  uint32_t primask = __get_PRIMASK();
+  __disable_irq();
+  if (!servo_remote_owned) {
+    servo_return_pending = 0U;
+    Servo_SetBoth(angle);
+  }
+  if (!primask) __enable_irq();
+}
+#endif
 
 static void Servo_PollButtons(void)
 {
@@ -346,8 +385,8 @@ static void Servo_PollButtons(void)
   } else { (counter) = 0U; } \
 } while (0)
 #if (SERVO_ACTIVE_BOARD == SERVO_BOARD_STANDARD)
-  SERVO_DEBOUNCE(k0_now, k0_stable, k0_debounce, (servo_return_pending = 0U, Servo_SetBoth(0)));
-  SERVO_DEBOUNCE(k1_now, k1_stable, k1_debounce, (servo_return_pending = 0U, Servo_SetBoth(180)));
+  SERVO_DEBOUNCE(k0_now, k0_stable, k0_debounce, Servo_SetLocalBoth(0));
+  SERVO_DEBOUNCE(k1_now, k1_stable, k1_debounce, Servo_SetLocalBoth(180));
   /* WK_UP is not used by this positional-servo test. */
 #else
   SERVO_DEBOUNCE(k0_now, k0_stable, k0_debounce, Servo_SetBoth(180));
@@ -744,12 +783,10 @@ int main(void)
 
   /* Two DS3230MG outputs start at calibrated logical zero. TIM8 CH3/4
    * are configured but disabled. Keep the SG90 outputs on TIM3/TIM4. */
-#if (ARM_SERVO_KEY_TEST_ENABLE != 0U)
   if (ArmServo_Init() != HAL_OK)
   {
     Error_Handler();
   }
-#endif
 
   CAN_Filter_Config();
 
@@ -1223,7 +1260,7 @@ void StartMotorControlTask(void *argument)
       last_control_tick = now;
       Buttons_Service();
       /* Drain a bounded burst, with interrupts enabled between commands.
-       * Five motors at 50 Hz already exceed the old 100 commands/s limit. */
+       * Four chassis motors at 50 Hz already exceed the old 100 commands/s limit. */
       for (uint8_t issued = 0U; issued < MOTOR_CMD_QUEUE_LENGTH; issued++)
       {
         if (motor_process_next_command(&cmd, &cmd_result) == 0U) { break; }

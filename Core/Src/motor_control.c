@@ -9,9 +9,9 @@ static osMessageQueueId_t motor_cmd_queue = NULL;
 static Motor_Command_t urgent_stop;
 static uint8_t urgent_stop_pending = 0U;
 static uint32_t ros_last_heartbeat_tick = 0U;
-static uint8_t motor_slave_addr[MOTOR_COUNT] = {1U, 2U, 3U, 4U, 5U};
-static uint16_t motor_speed_profile[MOTOR_COUNT] = {1000U, 1000U, 1000U, 1000U, 1000U};
-static uint8_t motor_accel_profile[MOTOR_COUNT] = {10U, 10U, 10U, 10U, 10U};
+static uint8_t motor_slave_addr[MOTOR_COUNT] = {1U, 2U, 3U, 4U};
+static uint16_t motor_speed_profile[MOTOR_COUNT] = {1000U, 1000U, 1000U, 1000U};
+static uint8_t motor_accel_profile[MOTOR_COUNT] = {10U, 10U, 10U, 10U};
 static uint8_t motor_report_mask = (uint8_t)(MOTOR_REPORT_BASIC | MOTOR_REPORT_POSITION);
 static uint16_t motor_seq_counter = 0U;
 static Motor_CommStats_t motor_comm_stats = {0};
@@ -430,9 +430,6 @@ HAL_StatusTypeDef motor_apply_command(const Motor_Command_t *cmd)
             addr_map[1] = (uint8_t)((raw >> 8) & 0xFFU);
             addr_map[2] = (uint8_t)((raw >> 16) & 0xFFU);
             addr_map[3] = (uint8_t)((raw >> 24) & 0xFFU);
-            /* Legacy frames carry four addresses. param0=0 preserves motor4;
-             * a nonzero param0 explicitly supplies its fifth address. */
-            addr_map[4] = (cmd->param0 != 0U) ? cmd->param0 : motor_get_address(4U);
             status = motor_configure_addresses(addr_map, MOTOR_COUNT);
             break;
         }

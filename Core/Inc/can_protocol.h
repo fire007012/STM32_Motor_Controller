@@ -32,7 +32,7 @@ extern "C" {
  *   0x06 set response policy, param0=1 wait-ack / 0 fire-and-forget
  *   0x07 set report mask, value[7:0]=bitmask(1 basic,2 pos,4 vel,8 target)
  *   0x08 set address map, value byte0..3 = motor0..3 slave address;
- *        param0=fifth address, or 0 to preserve its current mapping
+ *        param0 is unused; only the four chassis addresses remain
  *   0x09 heartbeat, no motion change, only refreshes ROS liveness watchdog
  * byte1: motor index 0..4 or 0xFF for all motors
  * byte2..5: value (int32 little-endian)

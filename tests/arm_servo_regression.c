@@ -4,6 +4,7 @@
 #include <string.h>
 RCC_TypeDef fake_rcc;
 uint32_t fake_compare[4];
+uint32_t fake_primask;
 unsigned fake_clock_flags;
 static uint32_t tick,clock_hz=36000000U;
 static uint8_t k0,k1;
@@ -32,6 +33,12 @@ static void poll_ms(unsigned n){while(n--){++tick;ArmServo_PollButtons(k0,k1);}}
 static void press(unsigned key){if(key==0)k0=1;else k1=1;poll_ms(30);k0=k1=0;poll_ms(30);}
 static void angles(int16_t angle){assert(ArmServo_GetTargetAngle(1)==angle);assert(ArmServo_GetTargetAngle(2)==angle);assert(fake_compare[2]==0 && fake_compare[3]==0);}
 static void prepare(void){configured=started=stopped=fake_clock_flags=0;memset(fake_compare,0,sizeof(fake_compare));k0=k1=0;fail_start=fail_config=-1;fake_rcc.CFGR=RCC_CFGR_PPRE2;clock_hz=36000000U;}
+static void command(uint8_t opcode,int16_t first10,int16_t second10,uint8_t mask,uint8_t result){
+ uint8_t data[8]={opcode,mask,(uint8_t)first10,(uint8_t)((uint16_t)first10>>8),
+    (uint8_t)second10,(uint8_t)((uint16_t)second10>>8),42,0};
+ for(unsigned i=0;i<7;i++)data[7]+=data[i];
+ assert(ArmServo_HandleCanCommand(data)==result);
+}
 int main(void){
  prepare();assert(ArmServo_Init()==HAL_OK);angles(0);
  assert(configured==15 && started==3 && fake_clock_flags==3);
@@ -51,6 +58,14 @@ int main(void){
  tick=UINT32_MAX-10U;press(1);angles(0);
  prepare();k0=1;assert(ArmServo_Init()==HAL_OK);poll_ms(1000);angles(0);
  k0=0;poll_ms(30);press(0);angles(5);
+ prepare();assert(ArmServo_Init()==HAL_OK);
+ command(0x21,150,-200,3,0);assert(ArmServo_GetTargetAngle(1)==15 && ArmServo_GetTargetAngle(2)==-20);
+ press(0);assert(ArmServo_GetTargetAngle(1)==15 && ArmServo_GetTargetAngle(2)==-20);
+ command(0x21,0,700,3,2);assert(ArmServo_GetTargetAngle(1)==15 && ArmServo_GetTargetAngle(2)==-20);
+ command(0x21,0,0,4,1);command(0x21,0,0,0,1);command(0x99,0,0,3,1);
+ command(0x23,0,0,0,0);press(1);assert(ArmServo_GetTargetAngle(1)==15);
+ command(0x21,0,0,3,0);angles(0);command(0x24,0,0,0,0);press(0);angles(5);
+ fake_primask=1;press(1);assert(fake_primask==1);angles(0);fake_primask=0;
  prepare();fail_start=1;assert(ArmServo_Init()==HAL_ERROR);assert(started==0 && stopped==1);
  press(0);angles(0);
  prepare();fail_config=2;assert(ArmServo_Init()==HAL_ERROR);assert(started==0);
