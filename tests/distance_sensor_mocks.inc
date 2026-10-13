@@ -71,6 +71,6 @@ static void vl53_update_dss(vl53l1x_sensor_t *sensor, const uint8_t data[17])
 { (void)sensor; (void)data; }
 static void vl53_setup_manual_calibration(vl53l1x_sensor_t *sensor)
 { sensor->calibrated = 1U; }
-static uint8_t CAN1_TrySend(CAN_TxHeaderTypeDef *header, uint8_t data[8])
-{ last_header = *header; memcpy(last_can_data, data, 8U); return 1U; }
+static HAL_StatusTypeDef CAN1_TrySend(const CAN_TxHeaderTypeDef *header, uint8_t data[8])
+{ last_header = *header; memcpy(last_can_data, data, 8U); return HAL_OK; }
 

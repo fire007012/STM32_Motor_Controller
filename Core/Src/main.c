@@ -135,8 +135,8 @@ static void CAN1_SendAck(uint16_t seq, uint8_t cmd, uint8_t result);
 static void CAN1_SendStats(void);
 static void CAN1_SendEmergencyEvent(uint8_t motor_idx, uint8_t reason_code, int32_t speed_rpm);
 static void CAN1_SendButtonEvent(uint8_t event_code, uint8_t result, uint16_t seq);
-static void CAN1_SendDistance(const distance_sensor_sample_t *sample);
-static void CAN1_SendSensorDiag(const distance_sensor_diag_t *diagnostic);
+static HAL_StatusTypeDef CAN1_SendDistance(const distance_sensor_sample_t *sample);
+static HAL_StatusTypeDef CAN1_SendSensorDiag(const distance_sensor_diag_t *diagnostic);
 static HAL_StatusTypeDef Servo_Init(void);
 static void Servo_SetBoth(int16_t angle_deg);
 static void Servo_PollButtons(void);
@@ -616,14 +616,14 @@ static void CAN1_SendStatus(uint8_t motor_idx)
   }
 }
 
-static void CAN1_SendDistance(const distance_sensor_sample_t *sample)
+static HAL_StatusTypeDef CAN1_SendDistance(const distance_sensor_sample_t *sample)
 {
     CAN_TxHeaderTypeDef txHeader = {0};
     uint8_t txData[8] = {0};
 
     if (sample == NULL)
     {
-      return;
+      return HAL_ERROR;
     }
 
     txData[0] = 0x01U;
@@ -641,17 +641,17 @@ static void CAN1_SendDistance(const distance_sensor_sample_t *sample)
     txHeader.RTR = CAN_RTR_DATA;
     txHeader.DLC = 8U;
     txHeader.TransmitGlobalTime = DISABLE;
-    (void)CAN1_TrySend(&txHeader, txData);
+    return CAN1_TrySend(&txHeader, txData);
   }
 
-static void CAN1_SendSensorDiag(const distance_sensor_diag_t *diagnostic)
+static HAL_StatusTypeDef CAN1_SendSensorDiag(const distance_sensor_diag_t *diagnostic)
 {
     CAN_TxHeaderTypeDef txHeader = {0};
     uint8_t txData[8] = {0};
 
     if (diagnostic == NULL)
     {
-      return;
+      return HAL_ERROR;
     }
 
     txData[0] = 0x01U;
@@ -669,7 +669,7 @@ static void CAN1_SendSensorDiag(const distance_sensor_diag_t *diagnostic)
     txHeader.RTR = CAN_RTR_DATA;
     txHeader.DLC = 8U;
     txHeader.TransmitGlobalTime = DISABLE;
-    (void)CAN1_TrySend(&txHeader, txData);
+    return CAN1_TrySend(&txHeader, txData);
   }
 
 static void CAN1_SendAck(uint16_t seq, uint8_t cmd, uint8_t result)
@@ -1377,6 +1377,10 @@ void StartSensorTask(void *argument)
   uint8_t i;
   distance_sensor_sample_t sample;
   distance_sensor_diag_t diagnostic;
+  distance_sensor_sample_t pending_samples[DISTANCE_SENSOR_COUNT] = {0};
+  distance_sensor_diag_t pending_diagnostics[DISTANCE_SENSOR_COUNT] = {0};
+  uint8_t sample_pending[DISTANCE_SENSOR_COUNT] = {0};
+  uint8_t diagnostic_pending[DISTANCE_SENSOR_COUNT] = {0};
 
   (void)argument;
   for (;;)
@@ -1385,15 +1389,17 @@ void StartSensorTask(void *argument)
 
     for (i = 0U; i < DISTANCE_SENSOR_COUNT; i++)
     {
-      if (distance_sensor_take_updated(i, &sample) == 1U)
+      if (distance_sensor_take_updated(i, &pending_samples[i]) == 1U)
       {
-        CAN1_SendDistance(&sample);
+        /* Replace unsent periodic data with the newest sample for this sensor. */
+        sample_pending[i] = 1U;
       }
     }
 
     while (distance_sensor_take_diagnostic(&diagnostic) == 1U)
     {
-      CAN1_SendSensorDiag(&diagnostic);
+      pending_diagnostics[diagnostic.sensor_id] = diagnostic;
+      diagnostic_pending[diagnostic.sensor_id] = 1U;
     }
 
     if (distance_sensor_take_emergency(&sample) == 1U)
@@ -1401,6 +1407,26 @@ void StartSensorTask(void *argument)
       /* Keep the local stop active if a host tries to restart while an
        * obstacle remains inside the hard-stop distance. */
       (void)motor_stop_all();
+    }
+
+    /* Give one-shot errors the first available queue slots. Retain each
+     * report until accepted; retries never wait for a hardware mailbox. */
+    for (i = 0U; i < DISTANCE_SENSOR_COUNT; i++)
+    {
+      if ((diagnostic_pending[i] != 0U) &&
+          (CAN1_SendSensorDiag(&pending_diagnostics[i]) == HAL_OK))
+      {
+        diagnostic_pending[i] = 0U;
+      }
+    }
+
+    for (i = 0U; i < DISTANCE_SENSOR_COUNT; i++)
+    {
+      if ((sample_pending[i] != 0U) &&
+          (CAN1_SendDistance(&pending_samples[i]) == HAL_OK))
+      {
+        sample_pending[i] = 0U;
+      }
     }
 
     osDelay(10U);

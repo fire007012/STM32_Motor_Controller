@@ -28,6 +28,55 @@ def function(source, name):
 
 
 class DistanceSensorBehavior(unittest.TestCase):
+    def test_reports_retry_after_transport_queue_exhaustion(self):
+        gcc = shutil.which('gcc')
+        if not gcc:
+            self.skipTest('Native GCC required')
+        source = (ROOT / 'Core/Src/distance_sensor.c').read_text(encoding='utf-8')
+        declarations = source[:source.index('static uint16_t read_be16')]
+        functions = '\n'.join(function(source, name) for name in (
+            'read_be16', 'sensor_set_xshut', 'sensor_mark_error', 'vl53_init_one',
+            'median_filter', 'vl53_process_ready_sample', 'distance_sensor_init',
+            'distance_sensor_poll', 'distance_sensor_take_updated',
+            'distance_sensor_take_diagnostic', 'distance_sensor_take_emergency'))
+        main = (ROOT / 'Core/Src/main.c').read_text(encoding='utf-8')
+        functions += '\n' + '\n'.join(function(main, name) for name in (
+            'CAN1_TrySend', 'CAN1_SendDistance', 'CAN1_SendSensorDiag', 'StartSensorTask'))
+        mocks = (ROOT / 'tests/distance_sensor_mocks.inc').read_text(encoding='utf-8')
+        mocks = mocks.replace(function(mocks, 'CAN1_TrySend'), '')
+        checks = (ROOT / 'tests/distance_sensor_reporting_checks.inc').read_text(encoding='utf-8')
+        with tempfile.TemporaryDirectory(prefix='distance-report-retry-') as folder:
+            tmp = Path(folder)
+            stub = (ROOT / 'tests/support/hal_stub.h').read_text(encoding='utf-8')
+            stub += r'''
+typedef enum {GPIO_PIN_RESET, GPIO_PIN_SET} GPIO_PinState;
+typedef struct {unsigned unused;} GPIO_TypeDef;
+extern GPIO_TypeDef gpioe;
+#define GPIOE (&gpioe)
+#define GPIO_PIN_0 1U
+#define GPIO_PIN_1 2U
+#define GPIO_PIN_2 4U
+#define GPIO_PIN_5 32U
+#define GPIO_PIN_6 64U
+void HAL_Delay(uint32_t ms);
+void HAL_GPIO_WritePin(GPIO_TypeDef *port, uint16_t pin, GPIO_PinState state);
+void osDelay(uint32_t ms);
+HAL_StatusTypeDef motor_stop_all(void);
+'''
+            (tmp / 'test_hal.h').write_text(stub, encoding='utf-8')
+            c = tmp / 'check.c'
+            # Keep the actual task loop alive across retries; osDelay drives the
+            # mock bus and ends the test after recovery and duplicate checks.
+            c.write_text('#include <assert.h>\n#include <stdio.h>\n#include <setjmp.h>\n'
+                         '#include "can_protocol.h"\n#include "can_transport.h"\n' +
+                         declarations + mocks + checks[:checks.index('/* TASK FUNCTIONS */')] +
+                         functions + checks[checks.index('/* TASK FUNCTIONS */'):], encoding='utf-8')
+            exe = tmp / 'check.exe'
+            subprocess.run([gcc, '-std=c11', '-Wall', '-Wextra', '-Werror',
+                            '-include', str(tmp / 'test_hal.h'), '-I', str(ROOT / 'Core/Inc'),
+                            str(c), str(ROOT / 'Core/Src/can_transport.c'), '-o', str(exe)], check=True)
+            subprocess.run([str(exe)], check=True)
+
     def test_five_sensor_bus_reporting_and_emergency_scope(self):
         gcc = shutil.which('gcc')
         if not gcc:
