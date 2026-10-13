@@ -38,7 +38,7 @@ class ArmServoControl(unittest.TestCase):
     def test_270_degree_variant_and_mirrored_second_servo(self):
         self.run_variant({'ARM_SERVO_1_TRAVEL_DEG': '270U',
                           'ARM_SERVO_2_TRAVEL_DEG': '270U',
-                          'ARM_SERVO_2_DIRECTION': '-1'})
+                          'ARM_SERVO_2_DIRECTION': '1'})
 
 if __name__ == '__main__':
     unittest.main()
