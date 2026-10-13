@@ -8,6 +8,7 @@
 #define VL53L1X_ADDR_RIGHT                0x32U
 #define VL53L1X_ADDR_ARM_UPPER_LEFT       0x33U
 #define VL53L1X_ADDR_ARM_UPPER_RIGHT      0x34U
+#define VL53L1X_ADDR_REAR                 0x35U
 
 #define VL53L1X_MODEL_ID_REG              0x010FU
 #define VL53L1X_MODEL_ID                  0xEACCU
@@ -657,7 +658,8 @@ static void vl53_process_ready_sample(vl53l1x_sensor_t *sensor)
             }
 
             /* Upper arm sensors guide lateral alignment, not obstacle hard-stop. */
-            if ((sensor->sample.sensor_id <= DIST_SENSOR_RIGHT) &&
+            if (((sensor->sample.sensor_id <= DIST_SENSOR_RIGHT) ||
+                 (sensor->sample.sensor_id == DIST_SENSOR_REAR)) &&
                 (filtered_distance <= VL53L1X_EMERGENCY_DISTANCE_MM)) {
                 sensor->sample.status |= DISTANCE_SENSOR_STATUS_EMERGENCY;
                 emergency_sample = sensor->sample;
@@ -692,11 +694,11 @@ HAL_StatusTypeDef distance_sensor_init(void)
     const uint16_t pins[DISTANCE_SENSOR_COUNT] = {
         DISTANCE_SENSOR_XSHUT_FRONT_Pin, DISTANCE_SENSOR_XSHUT_LEFT_Pin,
         DISTANCE_SENSOR_XSHUT_RIGHT_Pin, DISTANCE_SENSOR_XSHUT_ARM_UPPER_LEFT_Pin,
-        DISTANCE_SENSOR_XSHUT_ARM_UPPER_RIGHT_Pin
+        DISTANCE_SENSOR_XSHUT_ARM_UPPER_RIGHT_Pin, DISTANCE_SENSOR_XSHUT_REAR_Pin
     };
     const uint8_t addresses[DISTANCE_SENSOR_COUNT] = {
         VL53L1X_ADDR_FRONT, VL53L1X_ADDR_LEFT, VL53L1X_ADDR_RIGHT,
-        VL53L1X_ADDR_ARM_UPPER_LEFT, VL53L1X_ADDR_ARM_UPPER_RIGHT
+        VL53L1X_ADDR_ARM_UPPER_LEFT, VL53L1X_ADDR_ARM_UPPER_RIGHT, VL53L1X_ADDR_REAR
     };
 
     i2c1_configure();

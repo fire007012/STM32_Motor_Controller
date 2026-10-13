@@ -88,7 +88,7 @@ void osDelay(uint32_t ms)
         assert(sent_count == 129U); /* Accepted reports are not retried. */
         can_transport_init(&hcan1, &hcan2);
         fill_queue(64U);
-        for (unsigned i = 0U; i < 5U; i++) sensors[i].initialized = (i == 4U);
+        for (unsigned i = 0U; i < DISTANCE_SENSOR_COUNT; i++) sensors[i].initialized = (i == 4U);
         poll_index = 4U;
         tick += 1000U;
         break;
@@ -146,6 +146,19 @@ void osDelay(uint32_t ms)
         assert(stop_count == 1U);
         assert(sensors[0].sample.status == (DISTANCE_SENSOR_STATUS_VALID |
                                             DISTANCE_SENSOR_STATUS_EMERGENCY));
+        sensors[0].initialized = 0U;
+        sensors[DIST_SENSOR_REAR].initialized = 1U;
+        sensors[DIST_SENSOR_REAR].filter_count = sensors[DIST_SENSOR_REAR].filter_index = 0U;
+        break;
+    case 11U:
+        assert(stop_count == 2U);
+        assert(sensors[DIST_SENSOR_REAR].sample.status == (DISTANCE_SENSOR_STATUS_VALID |
+                                                        DISTANCE_SENSOR_STATUS_EMERGENCY));
+        assert(can_transport_get_failure_count(&hcan1) > 0U);
+        break;
+    case 12U:
+        /* A persistent rear obstacle must request another stop despite CAN congestion. */
+        assert(stop_count == 3U);
         assert(test_primask == 0U);
         longjmp(task_done, 1);
     default:
@@ -162,6 +175,6 @@ int main(void)
     assert(CAN1_SendSensorDiag(NULL) == HAL_ERROR);
     fill_queue(64U);
     if (setjmp(task_done) == 0) StartSensorTask(NULL);
-    puts("PASS sensor task: init/timeout retry, diagnostic priority, no duplicates, latest sample and local stop under full CAN queue");
+    puts("PASS sensor task: init/timeout retry, diagnostic priority, no duplicates, latest sample and front/rear local stop under full CAN queue");
     return 0;
 }

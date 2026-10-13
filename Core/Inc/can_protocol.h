@@ -18,10 +18,12 @@ extern "C" {
 
 /* Distance frame (standard 0x110, DLC=8):
  * [0x01, sensor_id, distance_mm LE16, sigma_mm LE16, status, sequence].
- * sensor_id: 0=front, 1=left, 2=right, 3=arm upper left, 4=arm upper right.
+ * sensor_id: 0=front, 1=left, 2=right, 3=arm upper left, 4=arm upper right,
+ *            5=rear.
  * Invalid distance is 0xFFFF with status bit0 (VALID) cleared. Sigma is
  * currently unsupported (0xFFFF). Sequence wraps independently per sensor.
- * Only IDs 0..2 participate in the local <=300 mm chassis hard-stop.
+ * IDs 0..2 and 5 participate in the local <=300 mm chassis hard-stop,
+ * regardless of travel direction.
  * IDs 3/4 are measurements for ROS stage-controlled lateral alignment;
  * STM32 does not compare them or generate lateral chassis commands.
  * Diagnostic frame 0x111 uses the same sensor_id numbering.

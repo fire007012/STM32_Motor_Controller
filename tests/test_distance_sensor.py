@@ -58,6 +58,7 @@ extern GPIO_TypeDef gpioe;
 #define GPIO_PIN_2 4U
 #define GPIO_PIN_5 32U
 #define GPIO_PIN_6 64U
+#define GPIO_PIN_7 128U
 void HAL_Delay(uint32_t ms);
 void HAL_GPIO_WritePin(GPIO_TypeDef *port, uint16_t pin, GPIO_PinState state);
 void osDelay(uint32_t ms);
@@ -77,7 +78,7 @@ HAL_StatusTypeDef motor_stop_all(void);
                             str(c), str(ROOT / 'Core/Src/can_transport.c'), '-o', str(exe)], check=True)
             subprocess.run([str(exe)], check=True)
 
-    def test_five_sensor_bus_reporting_and_emergency_scope(self):
+    def test_six_sensor_bus_reporting_and_emergency_scope(self):
         gcc = shutil.which('gcc')
         if not gcc:
             self.skipTest('Native GCC required')
@@ -109,6 +110,7 @@ extern GPIO_TypeDef gpioe;
 #define GPIO_PIN_2 4U
 #define GPIO_PIN_5 32U
 #define GPIO_PIN_6 64U
+#define GPIO_PIN_7 128U
 #define CAN_ID_STD 0U
 #define CAN_RTR_DATA 0U
 #define DISABLE 0U
