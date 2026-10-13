@@ -1204,13 +1204,6 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /* HC-SR04 ECHO input.  The module's 5 V ECHO signal must be level shifted
-   * before it reaches this 3.3 V GPIO. */
-  GPIO_InitStruct.Pin = HC_SR04_ECHO_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
-  HAL_GPIO_Init(HC_SR04_ECHO_GPIO_Port, &GPIO_InitStruct);
-
   /* Configure physical start and emergency-stop buttons as active-low inputs. */
   GPIO_InitStruct.Pin = START_BUTTON_Pin | ESTOP_BUTTON_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
@@ -1223,14 +1216,13 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
-  /* PE0 is the HC-SR04 trigger; PE1/PE2 keep the two VL53L1X devices in reset
-   * until their I2C addresses are assigned. */
-  HAL_GPIO_WritePin(GPIOE, HC_SR04_TRIG_Pin | GPIO_PIN_1 | GPIO_PIN_2, GPIO_PIN_RESET);
-  GPIO_InitStruct.Pin = HC_SR04_TRIG_Pin | GPIO_PIN_1 | GPIO_PIN_2;
+  /* Hold every VL53L1X in reset until individual addresses are assigned. */
+  HAL_GPIO_WritePin(DISTANCE_SENSOR_XSHUT_GPIO_Port, DISTANCE_SENSOR_XSHUT_PINS, GPIO_PIN_RESET);
+  GPIO_InitStruct.Pin = DISTANCE_SENSOR_XSHUT_PINS;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
+  HAL_GPIO_Init(DISTANCE_SENSOR_XSHUT_GPIO_Port, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
