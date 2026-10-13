@@ -7,15 +7,18 @@ extern "C" {
 
 #include "main.h"
 
-/* HC-SR04 front sensor wiring.  Change these two definitions if the module is
- * connected to different GPIOs.  TRIG is a 3.3 V output; the ECHO line must
- * be level-shifted to 3.3 V when using a 5 V HC-SR04 supply. */
-#define HC_SR04_TRIG_GPIO_Port           GPIOE
-#define HC_SR04_TRIG_Pin                 GPIO_PIN_0
-#define HC_SR04_ECHO_GPIO_Port           GPIOA
-#define HC_SR04_ECHO_Pin                 GPIO_PIN_1
-
-#define DISTANCE_SENSOR_COUNT 3U
+/* All five VL53L1X modules share I2C1: PB8=SCL, PB9=SDA.
+ * Each XSHUT must be controlled separately before assigning I2C addresses. */
+#define DISTANCE_SENSOR_COUNT 5U
+#define DISTANCE_SENSOR_XSHUT_GPIO_Port GPIOE
+#define DISTANCE_SENSOR_XSHUT_FRONT_Pin GPIO_PIN_0
+#define DISTANCE_SENSOR_XSHUT_LEFT_Pin GPIO_PIN_1
+#define DISTANCE_SENSOR_XSHUT_RIGHT_Pin GPIO_PIN_2
+#define DISTANCE_SENSOR_XSHUT_ARM_UPPER_LEFT_Pin GPIO_PIN_5
+#define DISTANCE_SENSOR_XSHUT_ARM_UPPER_RIGHT_Pin GPIO_PIN_6
+#define DISTANCE_SENSOR_XSHUT_PINS (DISTANCE_SENSOR_XSHUT_FRONT_Pin | \
+    DISTANCE_SENSOR_XSHUT_LEFT_Pin | DISTANCE_SENSOR_XSHUT_RIGHT_Pin | \
+    DISTANCE_SENSOR_XSHUT_ARM_UPPER_LEFT_Pin | DISTANCE_SENSOR_XSHUT_ARM_UPPER_RIGHT_Pin)
 
 #define DISTANCE_SENSOR_STATUS_VALID        0x01U
 #define DISTANCE_SENSOR_STATUS_OUT_OF_RANGE 0x02U
@@ -27,7 +30,9 @@ extern "C" {
 typedef enum {
     DIST_SENSOR_FRONT = 0U,
     DIST_SENSOR_LEFT = 1U,
-    DIST_SENSOR_RIGHT = 2U
+    DIST_SENSOR_RIGHT = 2U,
+    DIST_SENSOR_ARM_UPPER_LEFT = 3U,
+    DIST_SENSOR_ARM_UPPER_RIGHT = 4U
 } distance_sensor_id_t;
 
 typedef struct {
