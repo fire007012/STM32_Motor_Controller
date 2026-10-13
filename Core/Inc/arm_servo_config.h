@@ -22,11 +22,17 @@
  * Directions are viewed from the shaft; +1 means increasing pulse width.
  * Change a direction to -1 for an independently mirrored installation.
  * The initial +/-60 limits are bench limits, NOT verified arm clearances. */
+/* CH1 / PC6: RIGHT arm, replaces Y42 ID5. Desired forward is CCW.
+ * CH2 / PC7: LEFT arm, replaces Y42 ID6. Desired forward is CW.
+ * Positive logical angles mean forward on BOTH arms. Directions below are
+ * pulse signs, not a universal CW/CCW guarantee: verify each at +5 degrees.
+ * Default mapping: PC6 decreases pulse, PC7 increases pulse. If both are
+ * backward on your units, reverse BOTH direction signs. */
 #define ARM_SERVO_1_TRAVEL_DEG           180U
 #define ARM_SERVO_1_MIN_PULSE_US         500U
 #define ARM_SERVO_1_MAX_PULSE_US         2500U
 #define ARM_SERVO_1_ZERO_PULSE_US        1500U
-#define ARM_SERVO_1_DIRECTION           1
+#define ARM_SERVO_1_DIRECTION          (-1)
 #define ARM_SERVO_1_MIN_ANGLE_DEG       (-60)
 #define ARM_SERVO_1_MAX_ANGLE_DEG        60
 

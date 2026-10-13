@@ -17,6 +17,14 @@ def main_body():
 
 
 class StartupOrder(unittest.TestCase):
+    def test_start_buttons_match_cubemx(self):
+        header=(ROOT/'Core/Inc/main.h').read_text(encoding='utf-8')
+        ioc=(ROOT/'STM32_Motor_Controller.ioc').read_text(encoding='utf-8')
+        self.assertRegex(header,r'#define START_BUTTON_Pin\s+GPIO_PIN_1')
+        self.assertRegex(header,r'#define ESTOP_BUTTON_Pin\s+GPIO_PIN_2')
+        self.assertIn('PC1.GPIO_Label=START_BUTTON',ioc)
+        self.assertIn('PC2.GPIO_Label=ESTOP_BUTTON',ioc)
+
     def test_hal_delay_sensor_init_precedes_rtos_objects(self):
         main = main_body()
         self.assertEqual(main.count('distance_sensor_init()'), 1)
