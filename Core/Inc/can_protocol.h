@@ -16,6 +16,17 @@ extern "C" {
 #define ROS_CAN_SENSOR_DIAG_ID 0x111U
 #define ROS_CAN_BUTTON_EVENT_ID 0x112U
 
+/* Distance frame (standard 0x110, DLC=8):
+ * [0x01, sensor_id, distance_mm LE16, sigma_mm LE16, status, sequence].
+ * sensor_id: 0=front, 1=left, 2=right, 3=arm upper left, 4=arm upper right.
+ * Invalid distance is 0xFFFF with status bit0 (VALID) cleared. Sigma is
+ * currently unsupported (0xFFFF). Sequence wraps independently per sensor.
+ * Only IDs 0..2 participate in the local <=300 mm chassis hard-stop.
+ * IDs 3/4 are measurements for ROS stage-controlled lateral alignment;
+ * STM32 does not compare them or generate lateral chassis commands.
+ * Diagnostic frame 0x111 uses the same sensor_id numbering.
+ */
+
 #define ROS_BUTTON_EVENT_START 0x01U
 #define ROS_BUTTON_EVENT_ESTOP 0x02U
 #define ROS_BUTTON_EVENT_PRESSED 0x01U

@@ -3,8 +3,11 @@
 #include <string.h>
 
 #define VL53L1X_DEFAULT_ADDR              0x29U
+#define VL53L1X_ADDR_FRONT                0x30U
 #define VL53L1X_ADDR_LEFT                 0x31U
 #define VL53L1X_ADDR_RIGHT                0x32U
+#define VL53L1X_ADDR_ARM_UPPER_LEFT       0x33U
+#define VL53L1X_ADDR_ARM_UPPER_RIGHT      0x34U
 
 #define VL53L1X_MODEL_ID_REG              0x010FU
 #define VL53L1X_MODEL_ID                  0xEACCU
@@ -31,12 +34,6 @@
 #define VL53L1X_TIMING_GUARD_US           4528U
 #define VL53L1X_TARGET_RATE               0x0A00U
 #define VL53L1X_FILTER_SIZE                3U
-
-#define HC_SR04_MIN_DISTANCE_MM            20U
-#define HC_SR04_MAX_DISTANCE_MM            4000U
-#define HC_SR04_EMERGENCY_DISTANCE_MM      300U
-#define HC_SR04_ECHO_TIMEOUT_US            30000U
-#define HC_SR04_FILTER_SIZE                3U
 
 #define VL53L1X_REG_RESULT_STATUS         0U
 #define VL53L1X_REG_RESULT_STREAM_COUNT   2U
@@ -71,162 +68,9 @@ static uint8_t poll_index = 0U;
 static uint8_t emergency_pending = 0U;
 static distance_sensor_sample_t emergency_sample;
 
-/* The front sensor is an HC-SR04.  Its state is kept separately because the
- * other two entries in sensors[] remain VL53L1X devices. */
-static uint8_t hc_initialized = 0U;
-static uint8_t hc_sequence = 0U;
-static uint8_t hc_consecutive_error_count = 0U;
-static uint16_t hc_filter_mm[HC_SR04_FILTER_SIZE];
-static uint8_t hc_filter_count = 0U;
-static uint8_t hc_filter_index = 0U;
-static distance_sensor_sample_t hc_sample;
-static uint8_t hc_updated = 0U;
-static uint8_t hc_diagnostic_pending = 0U;
-static uint8_t hc_diagnostic_error_code = 0U;
-static uint8_t dwt_initialized = 0U;
-
 static uint16_t read_be16(const uint8_t *data)
 {
     return ((uint16_t)data[0] << 8) | data[1];
-}
-
-static void hc_dwt_init(void)
-{
-    if (dwt_initialized != 0U) {
-        return;
-    }
-
-    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
-    DWT->CYCCNT = 0U;
-    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
-    dwt_initialized = 1U;
-}
-
-static uint32_t hc_elapsed_us(uint32_t start_cycles)
-{
-    uint32_t cycles_per_us = SystemCoreClock / 1000000U;
-
-    if (cycles_per_us == 0U) {
-        cycles_per_us = 1U;
-    }
-    return (uint32_t)((DWT->CYCCNT - start_cycles) / cycles_per_us);
-}
-
-static uint8_t hc_wait_pin(GPIO_PinState state, uint32_t timeout_us)
-{
-    uint32_t start_cycles = DWT->CYCCNT;
-
-    while (HAL_GPIO_ReadPin(HC_SR04_ECHO_GPIO_Port, HC_SR04_ECHO_Pin) != state) {
-        if (hc_elapsed_us(start_cycles) >= timeout_us) {
-            return 0U;
-        }
-    }
-    return 1U;
-}
-
-static uint16_t hc_median_filter(uint16_t distance_mm)
-{
-    uint16_t ordered[HC_SR04_FILTER_SIZE];
-    uint8_t i;
-    uint8_t j;
-    uint16_t tmp;
-
-    hc_filter_mm[hc_filter_index] = distance_mm;
-    hc_filter_index = (uint8_t)((hc_filter_index + 1U) % HC_SR04_FILTER_SIZE);
-    if (hc_filter_count < HC_SR04_FILTER_SIZE) {
-        hc_filter_count++;
-    }
-
-    for (i = 0U; i < hc_filter_count; i++) {
-        ordered[i] = hc_filter_mm[i];
-    }
-    for (i = 0U; i < hc_filter_count; i++) {
-        for (j = (uint8_t)(i + 1U); j < hc_filter_count; j++) {
-            if (ordered[j] < ordered[i]) {
-                tmp = ordered[i];
-                ordered[i] = ordered[j];
-                ordered[j] = tmp;
-            }
-        }
-    }
-
-    return ordered[hc_filter_count / 2U];
-}
-
-static void hc_mark_error(uint8_t status, uint8_t error_code)
-{
-    hc_sample.sensor_id = DIST_SENSOR_FRONT;
-    hc_sample.distance_mm = 0xFFFFU;
-    hc_sample.sigma_mm = 0xFFFFU;
-    hc_sample.timestamp_ms = HAL_GetTick();
-    hc_sample.valid = 0U;
-    hc_sample.status = status;
-    hc_sample.sequence = ++hc_sequence;
-    hc_updated = 1U;
-    hc_diagnostic_pending = 1U;
-    hc_diagnostic_error_code = error_code;
-    if (hc_consecutive_error_count != 0xFFU) {
-        hc_consecutive_error_count++;
-    }
-}
-
-static void hc_process_sample(void)
-{
-    uint32_t start_cycles;
-    uint32_t pulse_us;
-    uint16_t distance_mm;
-
-    HAL_GPIO_WritePin(HC_SR04_TRIG_GPIO_Port, HC_SR04_TRIG_Pin, GPIO_PIN_RESET);
-    start_cycles = DWT->CYCCNT;
-    while (hc_elapsed_us(start_cycles) < 2U) {
-    }
-    HAL_GPIO_WritePin(HC_SR04_TRIG_GPIO_Port, HC_SR04_TRIG_Pin, GPIO_PIN_SET);
-    start_cycles = DWT->CYCCNT;
-    while (hc_elapsed_us(start_cycles) < 10U) {
-    }
-    HAL_GPIO_WritePin(HC_SR04_TRIG_GPIO_Port, HC_SR04_TRIG_Pin, GPIO_PIN_RESET);
-
-    if (hc_wait_pin(GPIO_PIN_SET, HC_SR04_ECHO_TIMEOUT_US) == 0U) {
-        hc_mark_error(DISTANCE_SENSOR_STATUS_TIMEOUT, 3U);
-        return;
-    }
-
-    start_cycles = DWT->CYCCNT;
-    if (hc_wait_pin(GPIO_PIN_RESET, HC_SR04_ECHO_TIMEOUT_US) == 0U) {
-        hc_mark_error(DISTANCE_SENSOR_STATUS_TIMEOUT, 3U);
-        return;
-    }
-    pulse_us = hc_elapsed_us(start_cycles);
-    distance_mm = (uint16_t)((pulse_us * 343U + 1000U) / 2000U);
-
-    hc_sample.sensor_id = DIST_SENSOR_FRONT;
-    hc_sample.timestamp_ms = HAL_GetTick();
-    hc_sample.sigma_mm = 0xFFFFU;
-    hc_sample.sequence = ++hc_sequence;
-    hc_sample.status = 0U;
-    hc_sample.valid = 0U;
-    if ((distance_mm >= HC_SR04_MIN_DISTANCE_MM) &&
-        (distance_mm <= HC_SR04_MAX_DISTANCE_MM)) {
-        distance_mm = hc_median_filter(distance_mm);
-        hc_sample.distance_mm = distance_mm;
-        hc_sample.valid = 1U;
-        hc_sample.status = DISTANCE_SENSOR_STATUS_VALID;
-        hc_consecutive_error_count = 0U;
-        if (distance_mm <= HC_SR04_EMERGENCY_DISTANCE_MM) {
-            hc_sample.status |= DISTANCE_SENSOR_STATUS_EMERGENCY;
-            emergency_sample = hc_sample;
-            emergency_pending = 1U;
-        }
-    } else {
-        hc_sample.distance_mm = 0xFFFFU;
-        hc_sample.status = DISTANCE_SENSOR_STATUS_OUT_OF_RANGE;
-        hc_diagnostic_pending = 1U;
-        hc_diagnostic_error_code = 2U;
-        if (hc_consecutive_error_count != 0xFFU) {
-            hc_consecutive_error_count++;
-        }
-    }
-    hc_updated = 1U;
 }
 
 static void i2c1_configure(void)
@@ -797,11 +641,12 @@ static void vl53_process_ready_sample(vl53l1x_sensor_t *sensor)
     sensor->sample.valid = 0U;
 
     if ((raw_status == 9U) && (stream_count != 0U)) {
-        filtered_distance = median_filter(sensor, raw_distance);
-        sensor->sample.distance_mm = filtered_distance;
-
-        if ((filtered_distance >= VL53L1X_MIN_DISTANCE_MM) &&
-            (filtered_distance <= VL53L1X_MAX_DISTANCE_MM)) {
+        /* Reject invalid raw ranges before filtering: an old good median
+         * must not make a failed current measurement look valid. */
+        if ((raw_distance >= VL53L1X_MIN_DISTANCE_MM) &&
+            (raw_distance <= VL53L1X_MAX_DISTANCE_MM)) {
+            filtered_distance = median_filter(sensor, raw_distance);
+            sensor->sample.distance_mm = filtered_distance;
             sensor->sample.valid = 1U;
             sensor->sample.status = DISTANCE_SENSOR_STATUS_VALID;
             sensor->consecutive_error_count = 0U;
@@ -811,7 +656,9 @@ static void vl53_process_ready_sample(vl53l1x_sensor_t *sensor)
                 vl53_setup_manual_calibration(sensor);
             }
 
-            if (filtered_distance <= VL53L1X_EMERGENCY_DISTANCE_MM) {
+            /* Upper arm sensors guide lateral alignment, not obstacle hard-stop. */
+            if ((sensor->sample.sensor_id <= DIST_SENSOR_RIGHT) &&
+                (filtered_distance <= VL53L1X_EMERGENCY_DISTANCE_MM)) {
                 sensor->sample.status |= DISTANCE_SENSOR_STATUS_EMERGENCY;
                 emergency_sample = sensor->sample;
                 emergency_pending = 1U;
@@ -842,42 +689,29 @@ HAL_StatusTypeDef distance_sensor_init(void)
 {
     HAL_StatusTypeDef overall_status = HAL_OK;
     uint8_t i;
+    const uint16_t pins[DISTANCE_SENSOR_COUNT] = {
+        DISTANCE_SENSOR_XSHUT_FRONT_Pin, DISTANCE_SENSOR_XSHUT_LEFT_Pin,
+        DISTANCE_SENSOR_XSHUT_RIGHT_Pin, DISTANCE_SENSOR_XSHUT_ARM_UPPER_LEFT_Pin,
+        DISTANCE_SENSOR_XSHUT_ARM_UPPER_RIGHT_Pin
+    };
+    const uint8_t addresses[DISTANCE_SENSOR_COUNT] = {
+        VL53L1X_ADDR_FRONT, VL53L1X_ADDR_LEFT, VL53L1X_ADDR_RIGHT,
+        VL53L1X_ADDR_ARM_UPPER_LEFT, VL53L1X_ADDR_ARM_UPPER_RIGHT
+    };
 
     i2c1_configure();
     memset(sensors, 0, sizeof(sensors));
     poll_index = 0U;
     emergency_pending = 0U;
-    hc_sequence = 0U;
-    hc_consecutive_error_count = 0U;
-    memset(hc_filter_mm, 0, sizeof(hc_filter_mm));
-    hc_filter_count = 0U;
-    hc_filter_index = 0U;
-    hc_updated = 0U;
-    hc_diagnostic_pending = 0U;
-    sensors[DIST_SENSOR_LEFT].xshut_port = GPIOE;
-    sensors[DIST_SENSOR_LEFT].xshut_pin = GPIO_PIN_1;
-    sensors[DIST_SENSOR_LEFT].address = VL53L1X_ADDR_LEFT;
-    sensors[DIST_SENSOR_RIGHT].xshut_port = GPIOE;
-    sensors[DIST_SENSOR_RIGHT].xshut_pin = GPIO_PIN_2;
-    sensors[DIST_SENSOR_RIGHT].address = VL53L1X_ADDR_RIGHT;
-
-    /* Only the two remaining VL53L1X devices use XSHUT.  PE0 is the HC-SR04
-     * trigger output now, so it must not be held in reset with the I2C sensors. */
-    for (i = DIST_SENSOR_LEFT; i < DISTANCE_SENSOR_COUNT; i++) {
+    for (i = 0U; i < DISTANCE_SENSOR_COUNT; i++) {
+        sensors[i].xshut_port = DISTANCE_SENSOR_XSHUT_GPIO_Port;
+        sensors[i].xshut_pin = pins[i];
+        sensors[i].address = addresses[i];
         sensor_set_xshut(&sensors[i], GPIO_PIN_RESET);
     }
     HAL_Delay(2U);
 
-    memset(&hc_sample, 0, sizeof(hc_sample));
-    hc_sample.sensor_id = DIST_SENSOR_FRONT;
-    hc_sample.distance_mm = 0xFFFFU;
-    hc_sample.sigma_mm = 0xFFFFU;
-    hc_sample.status = DISTANCE_SENSOR_STATUS_TIMEOUT;
-    hc_initialized = 1U;
-    hc_dwt_init();
-    HAL_GPIO_WritePin(HC_SR04_TRIG_GPIO_Port, HC_SR04_TRIG_Pin, GPIO_PIN_RESET);
-
-    for (i = DIST_SENSOR_LEFT; i < DISTANCE_SENSOR_COUNT; i++) {
+    for (i = 0U; i < DISTANCE_SENSOR_COUNT; i++) {
         if (vl53_init_one(&sensors[i]) != HAL_OK) {
             sensor_set_xshut(&sensors[i], GPIO_PIN_RESET);
             sensor_mark_error(&sensors[i], DISTANCE_SENSOR_STATUS_I2C_ERROR, 1U);
@@ -897,15 +731,6 @@ void distance_sensor_poll(void)
 
     sensor = NULL;
     for (attempts = 0U; attempts < DISTANCE_SENSOR_COUNT; attempts++) {
-        if (poll_index == DIST_SENSOR_FRONT) {
-            poll_index = (uint8_t)((poll_index + 1U) % DISTANCE_SENSOR_COUNT);
-            if (hc_initialized != 0U) {
-                hc_process_sample();
-                return;
-            }
-            continue;
-        }
-
         sensor = &sensors[poll_index];
         poll_index = (uint8_t)((poll_index + 1U) % DISTANCE_SENSOR_COUNT);
         if ((i2c1_initialized != 0U) && (sensor->initialized != 0U)) {
@@ -941,15 +766,6 @@ uint8_t distance_sensor_take_updated(uint8_t sensor_id, distance_sensor_sample_t
         return 0U;
     }
 
-    if (sensor_id == DIST_SENSOR_FRONT) {
-        if (hc_updated == 0U) {
-            return 0U;
-        }
-        *sample = hc_sample;
-        hc_updated = 0U;
-        return 1U;
-    }
-
     if (sensors[sensor_id].updated == 0U) {
         return 0U;
     }
@@ -966,18 +782,7 @@ uint8_t distance_sensor_take_diagnostic(distance_sensor_diag_t *diagnostic)
         return 0U;
     }
 
-    if (hc_diagnostic_pending != 0U) {
-        diagnostic->sensor_id = DIST_SENSOR_FRONT;
-        diagnostic->error_code = hc_diagnostic_error_code;
-        diagnostic->consecutive_error_count = hc_consecutive_error_count;
-        diagnostic->status = hc_sample.status;
-        diagnostic->last_distance_mm = hc_sample.distance_mm;
-        diagnostic->sequence = hc_sample.sequence;
-        hc_diagnostic_pending = 0U;
-        return 1U;
-    }
-
-    for (i = DIST_SENSOR_LEFT; i < DISTANCE_SENSOR_COUNT; i++) {
+    for (i = 0U; i < DISTANCE_SENSOR_COUNT; i++) {
         if (sensors[i].diagnostic_pending != 0U) {
             diagnostic->sensor_id = i;
             diagnostic->error_code = sensors[i].diagnostic_error_code;
