@@ -1290,6 +1290,8 @@ void StartMotorControlTask(void *argument)
     {
       last_control_tick = now;
       Buttons_Service();
+      ArmServo_PollDemo(HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET,
+                       HAL_GPIO_ReadPin(ESTOP_BUTTON_GPIO_Port, ESTOP_BUTTON_Pin) == GPIO_PIN_RESET);
       /* Drain a bounded burst, with interrupts enabled between commands.
        * Four chassis motors at 50 Hz already exceed the old 100 commands/s limit. */
       for (uint8_t issued = 0U; issued < MOTOR_CMD_QUEUE_LENGTH; issued++)
