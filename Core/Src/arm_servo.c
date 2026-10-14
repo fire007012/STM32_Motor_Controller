@@ -39,8 +39,15 @@ static const arm_servo_calibration_t calibration[ARM_SERVO_ACTIVE_COUNT] = {
     {ARM_SERVO_2_TRAVEL_DEG, ARM_SERVO_2_MIN_PULSE_US,
      ARM_SERVO_2_MAX_PULSE_US, ARM_SERVO_2_ZERO_PULSE_US,
      ARM_SERVO_2_DIRECTION, ARM_SERVO_2_MIN_ANGLE_DEG,
-     ARM_SERVO_2_MAX_ANGLE_DEG}
+     ARM_SERVO_2_MAX_ANGLE_DEG},
+    {ARM_SERVO_3_TRAVEL_DEG, ARM_SERVO_3_MIN_PULSE_US,
+     ARM_SERVO_3_MAX_PULSE_US, ARM_SERVO_3_ZERO_PULSE_US,
+     ARM_SERVO_3_DIRECTION, ARM_SERVO_3_MIN_ANGLE_DEG,
+     ARM_SERVO_3_MAX_ANGLE_DEG}
 };
+/* CAN still contains two logical angles. Physical CH3 follows logical CH1.
+ * Use this map for both whole-command validation and PWM writes. */
+static const uint8_t logical_axis[ARM_SERVO_ACTIVE_COUNT] = {0U, 1U, 0U};
 
 static int32_t angle_to_us10(const arm_servo_calibration_t *cfg, int16_t angle10)
 {
@@ -143,7 +150,7 @@ HAL_StatusTypeDef ArmServo_Init(void)
     if (HAL_TIM_GenerateEvent(&arm_timer, TIM_EVENTSOURCE_UPDATE) != HAL_OK) return HAL_ERROR;
     for (i = 0U; i < ARM_SERVO_ACTIVE_COUNT; ++i) {
         if (HAL_TIM_PWM_Start(&arm_timer, pwm_channels[i]) != HAL_OK) {
-            /* A failed second output must not leave the first commanded. */
+            /* A failed output must not leave any earlier outputs running. */
             uint8_t j;
             for (j = 0U; j < i; ++j) (void)HAL_TIM_PWM_Stop(&arm_timer, pwm_channels[j]);
             return HAL_ERROR;
@@ -183,17 +190,19 @@ uint8_t ArmServo_HandleCanCommand(const uint8_t data[8])
     angles[1] = (int16_t)((uint16_t)data[4] | ((uint16_t)data[5] << 8));
     /* Validate the whole command before changing either PWM channel. */
     for (i = 0U; i < ARM_SERVO_ACTIVE_COUNT; ++i) {
-        if ((data[1] & (1U << i)) &&
-            ((angles[i] < calibration[i].min_angle * 10) ||
-             (angles[i] > calibration[i].max_angle * 10))) return 2U;
+        const uint8_t axis = logical_axis[i];
+        if ((data[1] & (1U << axis)) &&
+            ((angles[axis] < calibration[i].min_angle * 10) ||
+             (angles[axis] > calibration[i].max_angle * 10))) return 2U;
     }
     demo_running = 0U;
     remote_owned = 1U;
     for (i = 0U; i < ARM_SERVO_ACTIVE_COUNT; ++i) {
-        if (data[1] & (1U << i)) {
-            target_deg10[i] = angles[i];
+        const uint8_t axis = logical_axis[i];
+        if (data[1] & (1U << axis)) {
+            target_deg10[i] = angles[axis];
             __HAL_TIM_SET_COMPARE(&arm_timer, pwm_channels[i],
-                                 (uint32_t)angle_to_us10(&calibration[i], angles[i]));
+                                 (uint32_t)angle_to_us10(&calibration[i], angles[axis]));
         }
     }
     return 0U;

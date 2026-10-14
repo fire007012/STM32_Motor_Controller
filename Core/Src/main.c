@@ -807,8 +807,8 @@ int main(void)
     Error_Handler();
   }
 
-  /* Two DS3230MG outputs start at calibrated logical zero. TIM8 CH3/4
-   * are configured but disabled. Keep the SG90 outputs on TIM3/TIM4. */
+  /* Three DS3230MG outputs start at calibrated logical zero. PC8/CH3
+   * follows PC6/CH1; PC9/CH4 remains disabled. SG90 uses TIM3/TIM4. */
   if (ArmServo_Init() != HAL_OK)
   {
     Error_Handler();

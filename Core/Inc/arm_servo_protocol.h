@@ -12,6 +12,8 @@
 #define POSITION_SERVO_ACK_CODE 0xA2U
 /* SET: [0x21, mask=1/2/3, angle1_i16_le, angle2_i16_le, seq, sum8].
  * Angles are signed tenths of a degree relative to each calibrated zero.
+ * Logical angle1/mask bit0 drives PC6 AND its PC8 follower; angle2/bit1
+ * drives PC7. No new frame bytes, masks or ACK format are required.
  * HOLD/RELEASE: [opcode,0,0,0,0,0,seq,sum8]. HOLD retains PWM/blocks keys;
  * RELEASE relinquishes local key ownership without moving.
  * ACK: [ack_code,seq,result,opcode,mask,0,0,sum8], result 0=accepted,
