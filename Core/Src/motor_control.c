@@ -30,7 +30,7 @@ typedef struct {
 static motion_slot_t staged[MOTOR_COUNT];
 static uint8_t staged_mask;
 static float requested_rpm[MOTOR_COUNT];
-static uint8_t request_active, physical_estop, local_stop_pending;
+static uint8_t request_active, local_stop_pending;
 static uint32_t request_tick;
 static uint32_t active_wheel_tick[MOTOR_COUNT];
 static uint32_t velocity_tick[MOTOR_COUNT], position_tick[MOTOR_COUNT];
@@ -41,7 +41,7 @@ static uint8_t status_poll_index, status_poll_type, speed_poll_index, poll_speed
 
 static uint8_t independent_stop(void)
 {
-    if (physical_estop || motor_is_ros_timeout(CHASSIS_HEARTBEAT_TIMEOUT_MS)) return 1U;
+    if (motor_is_ros_timeout(CHASSIS_HEARTBEAT_TIMEOUT_MS)) return 1U;
     for (uint8_t i = 0U; i < MOTOR_COUNT; ++i)
         if (motors[i].fault_flag) return 1U;
     return 0U;
@@ -83,11 +83,6 @@ static HAL_StatusTypeDef collision_stop(void)
 void motor_update_distance(const distance_sensor_sample_t *sample)
 {
     chassis_collision_update_range(sample);
-}
-
-void motor_set_physical_estop(uint8_t pressed)
-{
-    physical_estop = pressed != 0U;
 }
 
 void motor_safety_poll(void)
@@ -221,7 +216,7 @@ void motor_control_init(void)
     ros_heartbeat_seen = 0U;
     urgent_stop_pending = 0U;
     local_sync_start_pending = 0U;
-    staged_mask = request_active = physical_estop = local_stop_pending = 0U;
+    staged_mask = request_active = local_stop_pending = 0U;
     memset(requested_rpm, 0, sizeof(requested_rpm));
     memset(velocity_seen, 0, sizeof(velocity_seen));
     memset(position_seen, 0, sizeof(position_seen));

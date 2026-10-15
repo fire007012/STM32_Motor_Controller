@@ -184,21 +184,15 @@ static void Buttons_Service(void)
 {
   static uint8_t initialized = 0U;
   static uint8_t start_stable = 0U;
-  static uint8_t estop_stable = 0U;
   static uint8_t start_debounce = 0U;
-  static uint8_t estop_debounce = 0U;
   uint8_t start_now;
-  uint8_t estop_now;
 
   start_now = (HAL_GPIO_ReadPin(START_BUTTON_GPIO_Port, START_BUTTON_Pin) == GPIO_PIN_RESET) ? 1U : 0U;
-  estop_now = (HAL_GPIO_ReadPin(ESTOP_BUTTON_GPIO_Port, ESTOP_BUTTON_Pin) == GPIO_PIN_RESET) ? 1U : 0U;
 
-  /* Ignore a start key held through reset, while still checking a held
-   * emergency-stop input on the first service cycle. */
+  /* Ignore a start key held through reset. */
   if (initialized == 0U)
   {
     start_stable = start_now;
-    estop_stable = 0U;
     initialized = 1U;
   }
 
@@ -215,8 +209,7 @@ static void Buttons_Service(void)
 
         /* ROS owns the heartbeat and motion cache.  The local key only adds
          * an ordered sync marker after commands already accepted by firmware. */
-        if ((estop_now == 0U) && (estop_stable == 0U) &&
-            (motor_is_ros_ready(CHASSIS_HEARTBEAT_TIMEOUT_MS) != 0U))
+        if (motor_is_ros_ready(CHASSIS_HEARTBEAT_TIMEOUT_MS) != 0U)
         {
           seq = motor_allocate_cmd_seq();
           accepted = motor_request_local_sync_start(seq);
@@ -230,26 +223,6 @@ static void Buttons_Service(void)
   else
   {
     start_debounce = 0U;
-  }
-
-  if (estop_now != estop_stable)
-  {
-    if (++estop_debounce >= BUTTON_DEBOUNCE_SAMPLES)
-    {
-      estop_stable = estop_now;
-      estop_debounce = 0U;
-      if (estop_stable != 0U)
-      {
-        (void)motor_stop_all();
-        CAN1_SendEmergencyEvent(0xFFU, ROS_EMERGENCY_REASON_LOCAL_BUTTON, 0);
-        CAN1_SendButtonEvent(ROS_BUTTON_EVENT_ESTOP,
-                             ROS_BUTTON_RESULT_ACCEPTED, 0U);
-      }
-    }
-  }
-  else
-  {
-    estop_debounce = 0U;
   }
 }
 
@@ -1205,8 +1178,8 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /* Configure physical start and emergency-stop buttons as active-low inputs. */
-  GPIO_InitStruct.Pin = START_BUTTON_Pin | ESTOP_BUTTON_Pin;
+  /* Configure the physical start button as an active-low input. */
+  GPIO_InitStruct.Pin = START_BUTTON_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
@@ -1283,10 +1256,8 @@ void StartMotorControlTask(void *argument)
     {
       last_control_tick = now;
       Buttons_Service();
-      motor_set_physical_estop(HAL_GPIO_ReadPin(ESTOP_BUTTON_GPIO_Port, ESTOP_BUTTON_Pin) == GPIO_PIN_RESET);
       motor_safety_poll();
-      ArmServo_PollDemo(HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET,
-                       HAL_GPIO_ReadPin(ESTOP_BUTTON_GPIO_Port, ESTOP_BUTTON_Pin) == GPIO_PIN_RESET);
+      ArmServo_PollDemo(HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET);
       /* Drain a bounded burst, with interrupts enabled between commands.
        * Four chassis motors at 50 Hz already exceed the old 100 commands/s limit. */
       for (uint8_t issued = 0U; issued < MOTOR_CMD_QUEUE_LENGTH; issued++)

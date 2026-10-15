@@ -765,9 +765,7 @@ static void test_motion_lifetime_and_atomic_sync(void)
     assert(motors[0].target_velocity==0); /* no resurrection after timeout */
     assert(group(200,200,200,200)==HAL_OK); drain();
     tick+=501U; motor_safety_poll(); expect_actual_stop(); /* heartbeat loss */
-    motor_set_ros_alive(); motor_set_physical_estop(1U);
-    assert(group(200,200,200,200)==HAL_ERROR); expect_actual_stop();
-    motor_set_physical_estop(0U); motors[2].fault_flag=1U;
+    motor_set_ros_alive(); motors[2].fault_flag=1U;
     assert(group(200,200,200,200)==HAL_ERROR); expect_actual_stop();
 
     reset(); zdt_set_response_policy(ZDT_RESPONSE_FIRE_AND_FORGET);
@@ -800,7 +798,7 @@ static void test_motion_lifetime_and_atomic_sync(void)
     /* The cached position was sent at 200 RPM. A later profile must not
      * make the collision calculation pretend that it was sent at 50 RPM. */
     assert(motor_trigger_sync_motion()==HAL_ERROR); expect_actual_stop();
-    puts("PASS fresh full sync groups, queue/cache/motion deadlines, heartbeat, held physical estop and severe motor fault");
+    puts("PASS fresh full sync groups, queue/cache/motion deadlines, heartbeat and severe motor fault");
 }
 
 static void test_measured_body_speed_and_no_raw_bypass(void)

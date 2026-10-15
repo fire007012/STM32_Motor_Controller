@@ -231,7 +231,7 @@ static uint8_t key_pressed(arm_key_t *key, uint8_t pressed, uint32_t now)
     return 1U;
 }
 
-void ArmServo_PollDemo(uint8_t wk_pressed, uint8_t emergency_pressed)
+void ArmServo_PollDemo(uint8_t wk_pressed)
 {
 #if ARM_SERVO_WK_DEMO_ENABLE
     uint8_t pressed;
@@ -249,8 +249,8 @@ void ArmServo_PollDemo(uint8_t wk_pressed, uint8_t emergency_pressed)
     pressed = key_pressed(&demo_key, !!wk_pressed, now);
     primask = __get_PRIMASK();
     __disable_irq();
-    if (remote_owned || emergency_pressed) {
-        demo_running = 0U; /* Hold last pose, never retract on emergency. */
+    if (remote_owned) {
+        demo_running = 0U; /* Hold the pose selected by remote control. */
         if (!primask) __enable_irq();
         return;
     }
@@ -281,7 +281,7 @@ void ArmServo_PollDemo(uint8_t wk_pressed, uint8_t emergency_pressed)
     }
     if (!primask) __enable_irq();
 #else
-    (void)wk_pressed; (void)emergency_pressed;
+    (void)wk_pressed;
 #endif
 }
 

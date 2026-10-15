@@ -73,7 +73,6 @@ extern Motor_State_t motors[MOTOR_COUNT];
 
 void motor_control_init(void);
 void motor_update_distance(const distance_sensor_sample_t *sample);
-void motor_set_physical_estop(uint8_t pressed);
 void motor_safety_poll(void);
 HAL_StatusTypeDef motor_enable_all(void);
 HAL_StatusTypeDef motor_configure_addresses(const uint8_t *addr_list, uint8_t count);
