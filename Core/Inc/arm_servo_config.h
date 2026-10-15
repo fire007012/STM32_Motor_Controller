@@ -5,7 +5,7 @@
  * initialized in either mode. Remote arm ownership blocks local arm keys. */
 #define ARM_SERVO_KEY_TEST_ENABLE       1U //测试sg90 0为sg90
 #define ARM_SERVO_CHANNEL_COUNT         4U
-#define ARM_SERVO_ACTIVE_COUNT          2U
+#define ARM_SERVO_ACTIVE_COUNT          3U
 #define ARM_SERVO_STEP_DEG              5  //每次转多少度
 #define ARM_SERVO_FRAME_US              20000U
 
@@ -44,10 +44,21 @@
 #define ARM_SERVO_2_MIN_ANGLE_DEG       (-80)
 #define ARM_SERVO_2_MAX_ANGLE_DEG        80
 
-/* PC8/CH3 and PC9/CH4 are configured but NOT started or position-controlled.
- * Do not enable four-servo operation by changing ACTIVE_COUNT alone. */
-#if ARM_SERVO_CHANNEL_COUNT != 4U || ARM_SERVO_ACTIVE_COUNT != 2U
-#error "This stage implements exactly two active servos and four configured PWM channels"
+/* CH3 / PC8 is the second RIGHT-side servo and always follows CH1 / PC6.
+ * Aliases keep pulse endpoints, zero, direction and limits identical even
+ * when the PC6 calibration changes. CH3 is not an independent CAN axis. */
+#define ARM_SERVO_3_TRAVEL_DEG          ARM_SERVO_1_TRAVEL_DEG
+#define ARM_SERVO_3_MIN_PULSE_US        ARM_SERVO_1_MIN_PULSE_US
+#define ARM_SERVO_3_MAX_PULSE_US        ARM_SERVO_1_MAX_PULSE_US
+#define ARM_SERVO_3_ZERO_PULSE_US       ARM_SERVO_1_ZERO_PULSE_US
+#define ARM_SERVO_3_DIRECTION          ARM_SERVO_1_DIRECTION
+#define ARM_SERVO_3_MIN_ANGLE_DEG       ARM_SERVO_1_MIN_ANGLE_DEG
+#define ARM_SERVO_3_MAX_ANGLE_DEG       ARM_SERVO_1_MAX_ANGLE_DEG
+
+/* PC9/CH4 remains configured but never started. Four-servo operation
+ * requires implementing its side/axis mapping, not just changing this count. */
+#if ARM_SERVO_CHANNEL_COUNT != 4U || ARM_SERVO_ACTIVE_COUNT != 3U
+#error "This stage implements three active servos and four configured PWM channels"
 #endif
 #if ARM_SERVO_KEY_TEST_ENABLE > 1U
 #error "ARM_SERVO_KEY_TEST_ENABLE must be 0 or 1"
