@@ -83,15 +83,18 @@ int main(void){
  command(0x23,0,0,0,0);press(1);assert(ArmServo_GetTargetAngle(1)==15);
  command(0x21,0,0,3,0);angles(0);command(0x24,0,0,0,0);press(0);angles(5);
  command(0x21,0,0,3,0);command(0x24,0,0,0,0);angles(0);
- ArmServo_PollDemo(1);tick+=50;ArmServo_PollDemo(1);angles(0); /* held at boot */
+ ArmServo_PollDemo(1);tick+=50;assert(ArmServo_PollDemo(1)==0U);angles(0); /* held at boot */
  ArmServo_PollDemo(0);tick+=25;ArmServo_PollDemo(0);
- ArmServo_PollDemo(1);tick+=25;ArmServo_PollDemo(1);angles(15);
- tick+=ARM_SERVO_WK_MOVE_MS+ARM_SERVO_WK_HOLD_MS-1;ArmServo_PollDemo(1);angles(15);
- tick+=1;ArmServo_PollDemo(1);angles(0);tick+=5000;ArmServo_PollDemo(1);angles(0);
+ ArmServo_PollDemo(1);tick+=25;assert(ArmServo_PollDemo(1)==1U);angles(0);
+ assert(ArmServo_DemoSetAngle(30)==1U);angles(30);assert(ArmServo_DemoActive());
+ command(0x21,0,0,3,0); /* CAN ownership cancels local demo */
+ assert(!ArmServo_DemoActive());assert(ArmServo_DemoSetAngle(30)==0U);
+ command(0x24,0,0,0,0);angles(0);
  ArmServo_PollDemo(0);tick+=25;ArmServo_PollDemo(0);
- ArmServo_PollDemo(1);tick+=25;ArmServo_PollDemo(1);angles(15);
- command(0x21,50,50,3,0);tick+=5000;ArmServo_PollDemo(0);angles(5); /* remote wins */
- command(0x21,0,0,3,0);command(0x24,0,0,0,0);angles(0);
+ ArmServo_PollDemo(1);tick+=25;assert(ArmServo_PollDemo(1)==1U);
+ assert(ArmServo_DemoSetAngle(30)==1U);angles(30);
+ assert(ArmServo_DemoSetAngle(0)==1U);angles(0);
+ assert(ArmServo_DemoEnd()==1U);assert(!ArmServo_DemoActive());
  command(0x21,50,50,3,0);command(0x24,0,0,0,0);angles(5);
  fake_primask=1;press(1);assert(fake_primask==1);angles(0);fake_primask=0;
  prepare();fail_start=1;assert(ArmServo_Init()==HAL_ERROR);assert(started==0 && stopped==1);

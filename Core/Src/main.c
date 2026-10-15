@@ -143,6 +143,7 @@ static void Servo_SetBoth(int16_t angle_deg);
 static void Servo_PollButtons(void);
 static void Servo_Service(void);
 static void Buttons_Service(void);
+static void WkupDemo_Service(void);
 
 /* USER CODE END PFP */
 
@@ -154,6 +155,15 @@ static volatile uint8_t servo_return_mask = 0U;
 static volatile uint32_t servo_return_tick = 0U;
 static volatile uint8_t servo_remote_owned = 0U;
 static volatile uint8_t servo_initialized = 0U;
+typedef enum {
+  WKUP_DEMO_IDLE = 0,
+  WKUP_DEMO_ARM_FORWARD,
+  WKUP_DEMO_SERVO_OPEN,
+  WKUP_DEMO_SERVO_CLOSE,
+  WKUP_DEMO_ARM_RETURN
+} WkupDemoState_t;
+static WkupDemoState_t wkup_demo_state = WKUP_DEMO_IDLE;
+static uint32_t wkup_demo_stage_tick = 0U;
 static uint8_t can1_started = 0U;
 static uint8_t can2_started = 0U;
 static uint8_t can_motors_enabled = 0U;
@@ -342,6 +352,9 @@ void Servo_ReleaseLocalControl(void)
   servo_remote_owned = 0U;
 }
 
+/* K0/K1 and WK_UP are task-polled, not scanned from TIM6. The sequence only
+ * changes PWM targets and advances from ticks; it never waits or blocks. */
+
 #if (ARM_SERVO_KEY_TEST_ENABLE == 0U)
 static void Servo_SetLocalBoth(int16_t angle)
 {
@@ -357,6 +370,7 @@ static void Servo_SetLocalBoth(int16_t angle)
 
 static void Servo_PollButtons(void)
 {
+  if (wkup_demo_state != WKUP_DEMO_IDLE) return;
 #if (ARM_SERVO_KEY_TEST_ENABLE != 0U)
   ArmServo_PollButtons(
       HAL_GPIO_ReadPin(GPIOE, GPIO_PIN_4) == GPIO_PIN_RESET,
@@ -398,8 +412,6 @@ static void Servo_PollButtons(void)
 
 static void Servo_Service(void)
 {
-  Servo_PollButtons();
-
   if ((servo_return_pending != 0U) &&
       ((int32_t)(HAL_GetTick() - servo_return_tick) >= 0))
   {
@@ -1205,6 +1217,96 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
+static uint8_t Servo_DemoSetBoth(int16_t angle_deg)
+{
+  uint32_t primask = __get_PRIMASK();
+  __disable_irq();
+  if (servo_remote_owned) {
+    if (primask == 0U) __enable_irq();
+    return 0U;
+  }
+  servo_return_pending = 0U;
+  Servo_SetBoth(angle_deg);
+  if (primask == 0U) __enable_irq();
+  return 1U;
+}
+
+static void WkupDemo_Service(void)
+{
+  const uint32_t now = HAL_GetTick();
+  if (wkup_demo_state != WKUP_DEMO_IDLE &&
+      (!ArmServo_DemoActive() || servo_remote_owned)) {
+    /* A CAN arm command cancelled the local sequence; preserve CAN ownership. */
+    (void)ArmServo_DemoEnd();
+    wkup_demo_state = WKUP_DEMO_IDLE;
+    return;
+  }
+
+  switch (wkup_demo_state) {
+    case WKUP_DEMO_IDLE:
+      if (!servo_remote_owned &&
+          ArmServo_PollDemo(HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET)) {
+        const uint32_t primask = __get_PRIMASK();
+        __disable_irq();
+        if (ArmServo_DemoSetAngle(ARM_SERVO_WK_PLACE_DEG)) {
+          servo_return_pending = 0U;
+          wkup_demo_stage_tick = now;
+          wkup_demo_state = WKUP_DEMO_ARM_FORWARD;
+        }
+        if (primask == 0U) __enable_irq();
+      }
+      break;
+
+    case WKUP_DEMO_ARM_FORWARD:
+      if ((uint32_t)(now - wkup_demo_stage_tick) >= ARM_SERVO_WK_MOVE_MS + ARM_SERVO_WK_HOLD_MS) {
+        if (Servo_DemoSetBoth(ARM_SERVO_WK_SERVO_ANGLE)) { /* open: 0 degrees */
+          wkup_demo_stage_tick = now;
+          wkup_demo_state = WKUP_DEMO_SERVO_OPEN;
+        } else {
+          (void)ArmServo_DemoEnd();
+          wkup_demo_state = WKUP_DEMO_IDLE;
+        }
+      }
+      break;
+
+    case WKUP_DEMO_SERVO_OPEN:
+      if ((uint32_t)(now - wkup_demo_stage_tick) >= ARM_SERVO_WK_SERVO_HOLD_MS) {
+        if (Servo_DemoSetBoth(ARM_SERVO_WK_SERVO_RETURN_ANGLE)) { /* close: 180 degrees */
+          wkup_demo_stage_tick = now;
+          wkup_demo_state = WKUP_DEMO_SERVO_CLOSE;
+        } else {
+          (void)ArmServo_DemoEnd();
+          wkup_demo_state = WKUP_DEMO_IDLE;
+        }
+      }
+      break;
+
+    case WKUP_DEMO_SERVO_CLOSE:
+      if ((uint32_t)(now - wkup_demo_stage_tick) >= ARM_SERVO_WK_SERVO_RETURN_MS) {
+        if (ArmServo_DemoSetAngle(ARM_SERVO_WK_HOME_DEG)) {
+          wkup_demo_stage_tick = now;
+          wkup_demo_state = WKUP_DEMO_ARM_RETURN;
+        }
+      }
+      break;
+
+    case WKUP_DEMO_ARM_RETURN:
+      if ((uint32_t)(now - wkup_demo_stage_tick) >= ARM_SERVO_WK_MOVE_MS) {
+        const uint32_t primask = __get_PRIMASK();
+        __disable_irq();
+        if (ArmServo_DemoEnd()) {
+          wkup_demo_state = WKUP_DEMO_IDLE;
+        }
+        if (primask == 0U) __enable_irq();
+      }
+      break;
+
+    default:
+      wkup_demo_state = WKUP_DEMO_IDLE;
+      break;
+  }
+}
+
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_StartDefaultTask */
@@ -1251,13 +1353,16 @@ void StartMotorControlTask(void *argument)
 
   for(;;)
   {
+    /* Sample the physical arm keys from task context. TIM6 stays short and
+     * continues generating PWM/HAL ticks while collision checks run. */
+    Servo_PollButtons();
+    WkupDemo_Service();
     uint32_t now = HAL_GetTick();
     if ((now - last_control_tick) >= CHASSIS_CONTROL_PERIOD_MS)
     {
       last_control_tick = now;
       Buttons_Service();
       motor_safety_poll();
-      ArmServo_PollDemo(HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET);
       /* Drain a bounded burst, with interrupts enabled between commands.
        * Four chassis motors at 50 Hz already exceed the old 100 commands/s limit. */
       for (uint8_t issued = 0U; issued < MOTOR_CMD_QUEUE_LENGTH; issued++)
