@@ -4,12 +4,15 @@ static uint16_t high_pins;
 static uint8_t assigned_pins[256];
 static uint8_t failing_address;
 static unsigned initialized_count, range_reads;
+static unsigned delay_calls;
+static uint8_t boot_pending;
+static unsigned boot_reads_before_ready;
 static uint8_t results[17], ready_status, range_read_failure;
 static CAN_TxHeaderTypeDef last_header;
 static uint8_t last_can_data[8];
 
 uint32_t HAL_GetTick(void) { return tick; }
-void HAL_Delay(uint32_t ms) { tick += ms; }
+void HAL_Delay(uint32_t ms) { tick += ms; delay_calls++; }
 void HAL_GPIO_WritePin(GPIO_TypeDef *port, uint16_t pin, GPIO_PinState state)
 {
     assert(port == GPIOE);
@@ -40,7 +43,7 @@ static HAL_StatusTypeDef vl53_write_u8(uint8_t address, uint16_t reg, uint8_t va
 {
     if (reg == VL53L1X_I2C_ADDRESS_REG) {
         assert(address == 0x29U);
-        assert(value == 0x30U + initialized_count);
+        assert(value >= 0x30U && value <= 0x35U);
         for (unsigned i = 0; i < sizeof(assigned_pins); i++)
             if ((high_pins & i) == i && i && !(i & (i-1U)) && !assigned_pins[i])
                 assigned_pins[i] = value;
@@ -51,11 +54,16 @@ static HAL_StatusTypeDef vl53_write_u8(uint8_t address, uint16_t reg, uint8_t va
 static HAL_StatusTypeDef vl53_read_u8(uint8_t address, uint16_t reg, uint8_t *value)
 {
     (void)address;
-    *value = reg == VL53L1X_BOOT_STATUS_REG ? 1U : ready_status;
+    if (reg == VL53L1X_BOOT_STATUS_REG && boot_reads_before_ready) {
+        boot_reads_before_ready--;
+        *value = 0U;
+        return HAL_OK;
+    }
+    *value = reg == VL53L1X_BOOT_STATUS_REG ? (boot_pending ? 0U : 1U) : ready_status;
     return HAL_OK;
 }
 static HAL_StatusTypeDef vl53_apply_ranging_config(vl53l1x_sensor_t *sensor)
-{ return sensor->address == failing_address ? HAL_ERROR : HAL_OK; }
+{ return sensor->address == failing_address || failing_address == 0xFFU ? HAL_ERROR : HAL_OK; }
 static HAL_StatusTypeDef vl53_start_continuous(vl53l1x_sensor_t *sensor)
 { (void)sensor; return HAL_OK; }
 static HAL_StatusTypeDef vl53_read(uint8_t address, uint16_t reg, uint8_t *data, uint16_t length)

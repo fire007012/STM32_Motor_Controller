@@ -515,93 +515,52 @@ static HAL_StatusTypeDef CAN1_TrySend(const CAN_TxHeaderTypeDef *txHeader, uint8
 
 static void CAN1_SendStatus(uint8_t motor_idx)
 {
-  CAN_TxHeaderTypeDef txHeader = {0};
-  uint8_t txData[8] = {0};
-  int32_t pos;
-  int32_t vel;
+  CAN_TxFrame_t frames[5] = {0};
+  Motor_State_t state;
+  uint8_t count = 0U;
   uint8_t report_mask;
+  uint32_t primask;
 
-  if (motor_idx >= MOTOR_COUNT)
-  {
-    return;
-  }
-
-  txData[0] = 0x01U;
-  txData[1] = motor_idx;
-  txData[2] = (uint8_t)(motors[motor_idx].status_word & 0xFFU);
-  txData[3] = (uint8_t)(motors[motor_idx].status_word >> 8);
-  txData[4] = (uint8_t)(motors[motor_idx].fault_code & 0xFFU);
-  txData[5] = (uint8_t)(motors[motor_idx].fault_code >> 8);
-  txData[6] = motors[motor_idx].fault_flag;
-  txData[7] = 0U;
-
-  txHeader.StdId = ROS_CAN_STATUS_ID;
-  txHeader.ExtId = 0U;
-  txHeader.IDE = CAN_ID_STD;
-  txHeader.RTR = CAN_RTR_DATA;
-  txHeader.DLC = 8U;
-  txHeader.TransmitGlobalTime = DISABLE;
-
+  if (motor_idx >= MOTOR_COUNT) return;
   report_mask = motor_get_report_mask();
+  primask = __get_PRIMASK();
+  __disable_irq();
+  state = motors[motor_idx];
+  if (primask == 0U) __enable_irq();
 
-  if ((report_mask & MOTOR_REPORT_BASIC) != 0U)
+  for (uint8_t type = 1U; type <= 5U; type++)
   {
-    (void)CAN1_TrySend(&txHeader, txData);
+    uint8_t mask = type <= 3U ? (uint8_t)(1U << (type - 1U)) : MOTOR_REPORT_TARGET;
+    CAN_TxFrame_t *frame;
+    int32_t value;
+    if ((report_mask & mask) == 0U) continue;
+    frame = &frames[count++];
+    frame->header.StdId = ROS_CAN_STATUS_ID;
+    frame->header.IDE = CAN_ID_STD;
+    frame->header.RTR = CAN_RTR_DATA;
+    frame->header.DLC = 8U;
+    frame->data[0] = type;
+    frame->data[1] = motor_idx;
+    if (type == 1U)
+    {
+      frame->data[2] = (uint8_t)state.status_word;
+      frame->data[3] = (uint8_t)(state.status_word >> 8);
+      frame->data[4] = (uint8_t)state.fault_code;
+      frame->data[5] = (uint8_t)(state.fault_code >> 8);
+      frame->data[6] = state.fault_flag;
+      continue;
+    }
+    value = type == 2U ? state.position_feedback :
+            type == 3U ? state.current_velocity :
+            type == 4U ? state.target_velocity : state.target_position;
+    frame->data[2] = (uint8_t)value;
+    frame->data[3] = (uint8_t)((uint32_t)value >> 8);
+    frame->data[4] = (uint8_t)((uint32_t)value >> 16);
+    frame->data[5] = (uint8_t)((uint32_t)value >> 24);
   }
-
-  pos = motors[motor_idx].position_feedback;
-  txData[0] = 0x02U;
-  txData[1] = motor_idx;
-  txData[2] = (uint8_t)(pos & 0xFF);
-  txData[3] = (uint8_t)((uint32_t)pos >> 8);
-  txData[4] = (uint8_t)((uint32_t)pos >> 16);
-  txData[5] = (uint8_t)((uint32_t)pos >> 24);
-  txData[6] = 0U;
-  txData[7] = 0U;
-
-  if ((report_mask & MOTOR_REPORT_POSITION) != 0U)
-  {
-    (void)CAN1_TrySend(&txHeader, txData);
-  }
-
-  vel = motors[motor_idx].current_velocity;
-  txData[0] = 0x03U;
-  txData[1] = motor_idx;
-  txData[2] = (uint8_t)(vel & 0xFF);
-  txData[3] = (uint8_t)((uint32_t)vel >> 8);
-  txData[4] = (uint8_t)((uint32_t)vel >> 16);
-  txData[5] = (uint8_t)((uint32_t)vel >> 24);
-  txData[6] = 0U;
-  txData[7] = 0U;
-
-  if ((report_mask & MOTOR_REPORT_VELOCITY) != 0U)
-  {
-    (void)CAN1_TrySend(&txHeader, txData);
-  }
-
-  txData[0] = 0x04U;
-  txData[1] = motor_idx;
-  txData[2] = (uint8_t)(motors[motor_idx].target_velocity & 0xFF);
-  txData[3] = (uint8_t)((uint32_t)motors[motor_idx].target_velocity >> 8);
-  txData[4] = (uint8_t)((uint32_t)motors[motor_idx].target_velocity >> 16);
-  txData[5] = (uint8_t)((uint32_t)motors[motor_idx].target_velocity >> 24);
-  txData[6] = 0U;
-  txData[7] = 0U;
-
-  if ((report_mask & MOTOR_REPORT_TARGET) != 0U)
-  {
-    (void)CAN1_TrySend(&txHeader, txData);
-
-    txData[0] = 0x05U;
-    txData[1] = motor_idx;
-    txData[2] = (uint8_t)(motors[motor_idx].target_position & 0xFF);
-    txData[3] = (uint8_t)((uint32_t)motors[motor_idx].target_position >> 8);
-    txData[4] = (uint8_t)((uint32_t)motors[motor_idx].target_position >> 16);
-    txData[5] = (uint8_t)((uint32_t)motors[motor_idx].target_position >> 24);
-    txData[6] = 0U;
-    txData[7] = 0U;
-    (void)CAN1_TrySend(&txHeader, txData);
-  }
+  /* Queue each motor's selected types together. With individual sends a nearly
+   * full queue could repeatedly accept BASIC and discard POSITION/VELOCITY. */
+  if (count != 0U) (void)can_transport_send_batch(&hcan1, frames, count);
 }
 
 static HAL_StatusTypeDef CAN1_SendDistance(const distance_sensor_sample_t *sample)

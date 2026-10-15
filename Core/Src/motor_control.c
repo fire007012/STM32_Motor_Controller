@@ -17,7 +17,7 @@ static uint8_t ros_heartbeat_seen = 0U;
 static uint8_t motor_slave_addr[MOTOR_COUNT] = {1U, 2U, 3U, 4U};
 static uint16_t motor_speed_profile[MOTOR_COUNT] = {1000U, 1000U, 1000U, 1000U};
 static uint8_t motor_accel_profile[MOTOR_COUNT] = {10U, 10U, 10U, 10U};
-static uint8_t motor_report_mask = (uint8_t)(MOTOR_REPORT_BASIC | MOTOR_REPORT_POSITION);
+static uint8_t motor_report_mask = MOTOR_REPORT_DEFAULT;
 static uint16_t motor_seq_counter = 0U;
 static Motor_CommStats_t motor_comm_stats = {0};
 
@@ -211,6 +211,7 @@ done:
 
 void motor_control_init(void)
 {
+    motor_report_mask = MOTOR_REPORT_DEFAULT;
     if (motor_cmd_queue == NULL) {
         motor_cmd_queue = osMessageQueueNew(MOTOR_CMD_QUEUE_LENGTH, sizeof(Motor_Command_t), NULL);
     }
@@ -729,7 +730,7 @@ void motor_set_report_mask(uint8_t report_mask)
     uint8_t valid_mask = (uint8_t)(MOTOR_REPORT_BASIC | MOTOR_REPORT_POSITION | MOTOR_REPORT_VELOCITY | MOTOR_REPORT_TARGET);
 
     if ((report_mask & valid_mask) == 0U) {
-        motor_report_mask = (uint8_t)(MOTOR_REPORT_BASIC | MOTOR_REPORT_POSITION);
+        motor_report_mask = MOTOR_REPORT_DEFAULT;
     } else {
         motor_report_mask = (uint8_t)(report_mask & valid_mask);
     }

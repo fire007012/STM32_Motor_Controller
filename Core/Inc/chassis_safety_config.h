@@ -29,6 +29,8 @@
 #define DISTANCE_INTERMEASUREMENT_MS   50U
 #define DISTANCE_POLL_PERIOD_MS        5U
 #define DISTANCE_TIMING_BUDGET_US      33000U
+#define DISTANCE_RECOVERY_PERIOD_MS    1000U
+#define DISTANCE_ERROR_REPORT_MS       1000U
 
 /* Matches the ROS SOURCE configuration supplied by the user, not a physical
  * calibration: r=.075, L=.20 (user correction to ROS's previous .18);

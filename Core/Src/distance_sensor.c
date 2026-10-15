@@ -19,7 +19,9 @@
 #define VL53L1X_EXTSUP_CONFIG_REG         0x002EU
 #define VL53L1X_FAST_OSC_FREQ_REG         0x0006U
 #define VL53L1X_OSC_CALIBRATE_REG         0x00DEU
+#define VL53L1X_GPIO_MUX_REG              0x0030U
 #define VL53L1X_GPIO_STATUS_REG           0x0031U
+#define VL53L1X_INTERRUPT_CONFIG_REG      0x0046U
 #define VL53L1X_INTERRUPT_CLEAR_REG       0x0086U
 #define VL53L1X_MODE_START_REG            0x0087U
 #define VL53L1X_INTERMEASUREMENT_REG      0x006CU
@@ -56,6 +58,7 @@ typedef struct {
     uint8_t last_stream_count;
     uint8_t stream_seen;
     uint32_t last_sample_tick;
+    uint32_t last_recovery_tick;
     distance_sensor_sample_t sample;
     uint8_t updated;
     uint8_t diagnostic_pending;
@@ -66,6 +69,11 @@ static vl53l1x_sensor_t sensors[DISTANCE_SENSOR_COUNT];
 static uint8_t i2c1_initialized = 0U;
 static uint8_t poll_index = 0U;
 static uint32_t i2c_transaction_tick;
+/* Only one sensor may be awake at the default address during recovery. */
+static uint8_t recovery_id = DISTANCE_SENSOR_COUNT;
+static uint8_t recovery_phase;
+static uint8_t recovery_cursor;
+static uint32_t recovery_tick;
 
 static uint16_t read_be16(const uint8_t *data)
 {
@@ -419,7 +427,17 @@ static HAL_StatusTypeDef vl53_set_timing_budget(vl53l1x_sensor_t *sensor, uint32
 static HAL_StatusTypeDef vl53_apply_ranging_config(vl53l1x_sensor_t *sensor)
 {
     uint8_t ext_supply;
+    uint8_t gpio_mux;
     uint16_t outer_offset;
+
+    /* Match the active-low data-ready test in distance_sensor_poll(). Do not
+     * rely on reset defaults for polarity or threshold-vs-new-sample mode. */
+    if (vl53_read_u8(sensor->address, VL53L1X_GPIO_MUX_REG, &gpio_mux) != HAL_OK ||
+        vl53_write_u8(sensor->address, VL53L1X_GPIO_MUX_REG,
+                      (uint8_t)(gpio_mux | 0x10U)) != HAL_OK ||
+        vl53_write_u8(sensor->address, VL53L1X_INTERRUPT_CONFIG_REG, 0x20U) != HAL_OK) {
+        return HAL_ERROR;
+    }
 
     if ((vl53_write_u16(sensor->address, 0x0024U, VL53L1X_TARGET_RATE) != HAL_OK) ||
         (vl53_write_u8(sensor->address, 0x0031U, 0x02U) != HAL_OK) ||
@@ -478,16 +496,53 @@ static HAL_StatusTypeDef vl53_start_continuous(vl53l1x_sensor_t *sensor)
                ? HAL_OK : HAL_ERROR;
 }
 
+static HAL_StatusTypeDef vl53_configure_one(vl53l1x_sensor_t *sensor)
+{
+    if (vl53_write_u8(VL53L1X_DEFAULT_ADDR, VL53L1X_I2C_ADDRESS_REG, sensor->address) != HAL_OK ||
+        vl53_read_u16(sensor->address, VL53L1X_FAST_OSC_FREQ_REG, &sensor->fast_osc_frequency) != HAL_OK ||
+        vl53_read_u16(sensor->address, VL53L1X_OSC_CALIBRATE_REG, &sensor->osc_calibrate_val) != HAL_OK ||
+        sensor->fast_osc_frequency == 0U || sensor->osc_calibrate_val == 0U ||
+        vl53_apply_ranging_config(sensor) != HAL_OK ||
+        vl53_start_continuous(sensor) != HAL_OK) {
+        return HAL_ERROR;
+    }
+
+    sensor->initialized = 1U;
+    sensor->calibrated = 0U;
+    sensor->stream_seen = 0U;
+    sensor->last_sample_tick = HAL_GetTick();
+    sensor->sample.sensor_id = (uint8_t)(sensor - sensors);
+    sensor->sample.distance_mm = 0xFFFFU;
+    sensor->sample.sigma_mm = 0xFFFFU;
+    return HAL_OK;
+}
+
+static HAL_StatusTypeDef vl53_wait_for_boot(uint8_t address)
+{
+    uint32_t start_tick = HAL_GetTick();
+    uint8_t boot_status = 0U;
+
+    do {
+        if (vl53_read_u8(address, VL53L1X_BOOT_STATUS_REG, &boot_status) == HAL_OK &&
+            (boot_status & 0x01U) != 0U) {
+            return HAL_OK;
+        }
+        HAL_Delay(1U);
+    } while ((HAL_GetTick() - start_tick) < VL53L1X_BOOT_TIMEOUT_MS);
+    return HAL_ERROR;
+}
+
 static HAL_StatusTypeDef vl53_init_one(vl53l1x_sensor_t *sensor)
 {
     uint16_t model_id;
-    uint32_t start_tick;
-    uint8_t boot_status = 0U;
 
     sensor_set_xshut(sensor, GPIO_PIN_SET);
     HAL_Delay(2U);
 
-    if (vl53_read_u16(VL53L1X_DEFAULT_ADDR, VL53L1X_MODEL_ID_REG, &model_id) != HAL_OK ||
+    /* Identify only after boot, and before writing configuration/reset to a
+     * device that might be a different ToF model at the same default address. */
+    if (vl53_wait_for_boot(VL53L1X_DEFAULT_ADDR) != HAL_OK ||
+        vl53_read_u16(VL53L1X_DEFAULT_ADDR, VL53L1X_MODEL_ID_REG, &model_id) != HAL_OK ||
         model_id != VL53L1X_MODEL_ID) {
         return HAL_ERROR;
     }
@@ -501,31 +556,70 @@ static HAL_StatusTypeDef vl53_init_one(vl53l1x_sensor_t *sensor)
     }
     HAL_Delay(2U);
 
-    start_tick = HAL_GetTick();
-    do {
-        if (vl53_read_u8(VL53L1X_DEFAULT_ADDR, VL53L1X_BOOT_STATUS_REG, &boot_status) == HAL_OK &&
-            (boot_status & 0x01U) != 0U) {
-            break;
-        }
-        HAL_Delay(1U);
-    } while ((HAL_GetTick() - start_tick) < VL53L1X_BOOT_TIMEOUT_MS);
-
-    if ((boot_status & 0x01U) == 0U ||
-        vl53_write_u8(VL53L1X_DEFAULT_ADDR, VL53L1X_I2C_ADDRESS_REG, sensor->address) != HAL_OK ||
-        vl53_read_u16(sensor->address, VL53L1X_FAST_OSC_FREQ_REG, &sensor->fast_osc_frequency) != HAL_OK ||
-        vl53_read_u16(sensor->address, VL53L1X_OSC_CALIBRATE_REG, &sensor->osc_calibrate_val) != HAL_OK ||
-        sensor->fast_osc_frequency == 0U || sensor->osc_calibrate_val == 0U ||
-        vl53_apply_ranging_config(sensor) != HAL_OK ||
-        vl53_start_continuous(sensor) != HAL_OK) {
+    if (vl53_wait_for_boot(VL53L1X_DEFAULT_ADDR) != HAL_OK) {
         return HAL_ERROR;
     }
 
-    sensor->initialized = 1U;
-    sensor->last_sample_tick = HAL_GetTick();
-    sensor->sample.sensor_id = (uint8_t)(sensor - sensors);
-    sensor->sample.distance_mm = 0xFFFFU;
-    sensor->sample.sigma_mm = 0xFFFFU;
-    return HAL_OK;
+    return vl53_configure_one(sensor);
+}
+
+static void distance_sensor_recover(void)
+{
+    uint32_t now = HAL_GetTick();
+    vl53l1x_sensor_t *sensor;
+    uint8_t boot_status;
+    uint16_t model_id;
+
+    if (i2c1_initialized == 0U) return;
+    if (recovery_id == DISTANCE_SENSOR_COUNT) {
+        for (uint8_t attempt = 0U; attempt < DISTANCE_SENSOR_COUNT; attempt++) {
+            uint8_t id = recovery_cursor;
+            recovery_cursor = (uint8_t)((recovery_cursor + 1U) % DISTANCE_SENSOR_COUNT);
+            sensor = &sensors[id];
+            if ((!sensor->initialized || now - sensor->last_sample_tick >= DISTANCE_SAMPLE_TIMEOUT_MS) &&
+                now - sensor->last_recovery_tick >= DISTANCE_RECOVERY_PERIOD_MS) {
+                recovery_id = id;
+                recovery_phase = 0U;
+                recovery_tick = now;
+                sensor->last_recovery_tick = now;
+                sensor->initialized = 0U;
+                sensor_set_xshut(sensor, GPIO_PIN_RESET);
+                if (sensor->sample.status != DISTANCE_SENSOR_STATUS_I2C_ERROR) {
+                    sensor_mark_error(sensor, DISTANCE_SENSOR_STATUS_TIMEOUT, 3U);
+                }
+                break;
+            }
+        }
+        return;
+    }
+
+    sensor = &sensors[recovery_id];
+    /* No HAL_Delay or boot-wait loop at runtime: healthy sensors and CAN tasks
+     * keep running between reset/boot steps. Failed modules stay isolated. */
+    if (now - recovery_tick < 2U) return;
+    if (recovery_phase == 0U) {
+        sensor_set_xshut(sensor, GPIO_PIN_SET);
+        recovery_phase = 1U;
+        recovery_tick = now;
+        return;
+    }
+    if (vl53_read_u8(VL53L1X_DEFAULT_ADDR, VL53L1X_BOOT_STATUS_REG, &boot_status) == HAL_OK &&
+        (boot_status & 0x01U) != 0U) {
+        if (vl53_read_u16(VL53L1X_DEFAULT_ADDR, VL53L1X_MODEL_ID_REG, &model_id) == HAL_OK &&
+            model_id == VL53L1X_MODEL_ID && vl53_configure_one(sensor) == HAL_OK) {
+            sensor->last_recovery_tick = HAL_GetTick();
+            recovery_id = DISTANCE_SENSOR_COUNT;
+            return;
+        }
+    } else if (now - recovery_tick < VL53L1X_BOOT_TIMEOUT_MS) {
+        return;
+    }
+
+    sensor_set_xshut(sensor, GPIO_PIN_RESET);
+    sensor->initialized = 0U;
+    sensor->last_recovery_tick = HAL_GetTick();
+    sensor_mark_error(sensor, DISTANCE_SENSOR_STATUS_I2C_ERROR, 1U);
+    recovery_id = DISTANCE_SENSOR_COUNT;
 }
 
 static void vl53_update_dss(vl53l1x_sensor_t *sensor, const uint8_t results[17])
@@ -668,6 +762,8 @@ HAL_StatusTypeDef distance_sensor_init(void)
     i2c1_configure();
     memset(sensors, 0, sizeof(sensors));
     poll_index = 0U;
+    recovery_id = DISTANCE_SENSOR_COUNT;
+    recovery_phase = recovery_cursor = 0U;
     for (i = 0U; i < DISTANCE_SENSOR_COUNT; i++) {
         sensors[i].last_valid_distance_mm = 0xFFFFU;
         sensors[i].xshut_port = DISTANCE_SENSOR_XSHUT_GPIO_Port;
@@ -683,6 +779,7 @@ HAL_StatusTypeDef distance_sensor_init(void)
             sensor_mark_error(&sensors[i], DISTANCE_SENSOR_STATUS_I2C_ERROR, 1U);
             overall_status = HAL_ERROR;
         }
+        sensors[i].last_recovery_tick = HAL_GetTick();
     }
 
     return overall_status;
@@ -694,6 +791,18 @@ void distance_sensor_poll(void)
     uint8_t gpio_status;
     uint32_t now;
     uint8_t attempts;
+
+    distance_sensor_recover();
+    now = HAL_GetTick();
+    for (uint8_t i = 0U; i < DISTANCE_SENSOR_COUNT; i++) {
+        sensor = &sensors[i];
+        /* Reannounce errors for hosts joining after startup, without ever
+         * publishing a cached valid range as a fresh measurement. */
+        if (!sensor->sample.valid && sensor->sample.status != 0U &&
+            now - sensor->sample.timestamp_ms >= DISTANCE_ERROR_REPORT_MS) {
+            sensor_mark_error(sensor, sensor->sample.status, sensor->diagnostic_error_code);
+        }
+    }
 
     sensor = NULL;
     for (attempts = 0U; attempts < DISTANCE_SENSOR_COUNT; attempts++) {

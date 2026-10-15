@@ -28,6 +28,64 @@ def function(source, name):
 
 
 class DistanceSensorBehavior(unittest.TestCase):
+    def test_actual_ranging_configuration_and_data_ready_polarity(self):
+        gcc = shutil.which('gcc')
+        if not gcc:
+            self.skipTest('Native GCC required')
+        source = (ROOT / 'Core/Src/distance_sensor.c').read_text(encoding='utf-8')
+        declarations = source[:source.index('static vl53l1x_sensor_t sensors')]
+        functions = '\n'.join(function(source, name) for name in (
+            'vl53_encode_timeout', 'vl53_macro_period_us', 'vl53_timeout_us_to_mclks',
+            'vl53_set_timing_budget', 'vl53_apply_ranging_config', 'vl53_start_continuous'))
+        checks = r'''
+static uint8_t registers[512];
+static uint16_t failing_register = 0xFFFFU;
+static HAL_StatusTypeDef vl53_read_u8(uint8_t addr, uint16_t reg, uint8_t *value)
+{ assert(addr == 0x30U); *value = registers[reg]; return reg == failing_register ? HAL_ERROR : HAL_OK; }
+static HAL_StatusTypeDef vl53_read_u16(uint8_t addr, uint16_t reg, uint16_t *value)
+{ assert(addr == 0x30U); *value = ((uint16_t)registers[reg] << 8) | registers[reg+1U]; return HAL_OK; }
+static HAL_StatusTypeDef vl53_write_u8(uint8_t addr, uint16_t reg, uint8_t value)
+{ assert(addr == 0x30U); if (reg == failing_register) return HAL_ERROR; registers[reg] = value; return HAL_OK; }
+static HAL_StatusTypeDef vl53_write_u16(uint8_t addr, uint16_t reg, uint16_t value)
+{ assert(addr == 0x30U); registers[reg] = (uint8_t)(value >> 8); registers[reg+1U] = (uint8_t)value; return HAL_OK; }
+static HAL_StatusTypeDef vl53_write_u32(uint8_t addr, uint16_t reg, uint32_t value)
+{ assert(addr == 0x30U); for (unsigned i=0U; i<4U; i++) registers[reg+i]=(uint8_t)(value >> (24U-8U*i)); return HAL_OK; }
+'''
+        checks += functions + r'''
+int main(void)
+{
+    vl53l1x_sensor_t sensor = {.address=0x30U, .fast_osc_frequency=10000U, .osc_calibrate_val=200U};
+    registers[VL53L1X_GPIO_MUX_REG] = 1U; /* Initially active high. */
+    registers[VL53L1X_INTERRUPT_CONFIG_REG] = 0U; /* Initially threshold mode. */
+    assert(vl53_apply_ranging_config(&sensor) == HAL_OK);
+    assert(registers[VL53L1X_GPIO_MUX_REG] == 0x11U);
+    assert(registers[VL53L1X_INTERRUPT_CONFIG_REG] == 0x20U);
+    assert(registers[VL53L1X_EXTSUP_CONFIG_REG] & 1U);
+    assert(registers[0x82U] == 0U && registers[0x81U] == 0x8BU);
+    assert(vl53_start_continuous(&sensor) == HAL_OK);
+    assert(registers[VL53L1X_MODE_START_REG] == 0x40U);
+    assert(registers[VL53L1X_INTERRUPT_CLEAR_REG] == 1U);
+    uint32_t period = 0U;
+    for (unsigned i=0U; i<4U; i++) period=(period<<8)|registers[VL53L1X_INTERMEASUREMENT_REG+i];
+    assert(period == 50U * 200U);
+    failing_register = VL53L1X_GPIO_MUX_REG;
+    assert(vl53_apply_ranging_config(&sensor) == HAL_ERROR);
+    failing_register = VL53L1X_INTERRUPT_CONFIG_REG;
+    assert(vl53_apply_ranging_config(&sensor) == HAL_ERROR);
+    return 0;
+}
+'''
+        with tempfile.TemporaryDirectory(prefix='distance-config-') as folder:
+            tmp = Path(folder)
+            c = tmp / 'check.c'
+            c.write_text('#include <assert.h>\ntypedef struct {unsigned unused;} GPIO_TypeDef;\n' +
+                         declarations + checks, encoding='utf-8')
+            exe = tmp / 'check.exe'
+            subprocess.run([gcc, '-std=c11', '-Wall', '-Wextra', '-Werror',
+                            '-include', str(ROOT / 'tests/support/hal_stub.h'),
+                            '-I', str(ROOT / 'Core/Inc'), str(c), '-o', str(exe)], check=True)
+            subprocess.run([str(exe)], check=True)
+
     def test_reports_retry_after_transport_queue_exhaustion(self):
         gcc = shutil.which('gcc')
         if not gcc:
@@ -35,7 +93,9 @@ class DistanceSensorBehavior(unittest.TestCase):
         source = (ROOT / 'Core/Src/distance_sensor.c').read_text(encoding='utf-8')
         declarations = source[:source.index('static uint16_t read_be16')]
         functions = '\n'.join(function(source, name) for name in (
-            'read_be16', 'sensor_set_xshut', 'sensor_mark_error', 'vl53_init_one',
+            'read_be16', 'sensor_set_xshut', 'sensor_mark_error', 'vl53_configure_one',
+            'vl53_wait_for_boot', 'vl53_init_one',
+            'distance_sensor_recover',
             'vl53_process_ready_sample', 'distance_sensor_init',
             'distance_sensor_poll', 'distance_sensor_take_updated',
             'distance_sensor_take_diagnostic'))
@@ -86,7 +146,9 @@ HAL_StatusTypeDef motor_stop_all(void);
         source = (ROOT / 'Core/Src/distance_sensor.c').read_text(encoding='utf-8')
         declarations = source[:source.index('static uint16_t read_be16')]
         functions = '\n'.join(function(source, name) for name in (
-            'read_be16', 'sensor_set_xshut', 'sensor_mark_error', 'vl53_init_one',
+            'read_be16', 'sensor_set_xshut', 'sensor_mark_error', 'vl53_configure_one',
+            'vl53_wait_for_boot', 'vl53_init_one',
+            'distance_sensor_recover',
             'vl53_process_ready_sample', 'distance_sensor_init',
             'distance_sensor_poll', 'distance_sensor_take_updated',
             'distance_sensor_take_diagnostic'))

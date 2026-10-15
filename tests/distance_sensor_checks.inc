@@ -19,7 +19,9 @@ int main(void)
     distance_sensor_sample_t sample;
     distance_sensor_diag_t diag;
     reset_bus(0U);
+    boot_reads_before_ready = 8U; /* Slow power-up must not be mistaken for a missing module. */
     assert(distance_sensor_init() == HAL_OK);
+    assert(boot_reads_before_ready == 0U);
     assert(initialized_count == DISTANCE_SENSOR_COUNT && high_pins == DISTANCE_SENSOR_XSHUT_PINS);
     for (unsigned i = 0; i < DISTANCE_SENSOR_COUNT; i++) {
         assert(sensors[i].initialized && sensors[i].address == 0x30U+i);
@@ -153,5 +155,100 @@ int main(void)
         distance_sensor_poll();
         assert(distance_sensor_take_updated(id, &sample) && sample.status == 4U);
     }
+    /* A failed module is retried in steps without blocking healthy sampling.
+     * Errors are visible to hosts joining after the one-shot startup report. */
+    reset_bus(0x33U);
+    boot_pending = 0U;
+    ready_status = 1U;
+    assert(distance_sensor_init() == HAL_ERROR);
+    for (unsigned i = 0U; i < DISTANCE_SENSOR_COUNT; i++) {
+        distance_sensor_take_updated(i, &sample);
+    }
+    while (distance_sensor_take_diagnostic(&diag)) {}
+    tick += DISTANCE_RECOVERY_PERIOD_MS;
+    for (unsigned i = 0U; i < DISTANCE_SENSOR_COUNT; i++)
+        if (i != 3U) sensors[i].last_sample_tick = tick;
+    prepare(500U, 9U);
+    unsigned delays_before = delay_calls;
+    distance_sensor_poll();
+    assert(recovery_id == 3U && !sensors[3].initialized);
+    assert(!(high_pins & DISTANCE_SENSOR_XSHUT_ARM_UPPER_LEFT_Pin));
+    assert(distance_sensor_take_updated(3U, &sample));
+    assert(!sample.valid && sample.distance_mm == 0xFFFFU && sample.sequence == 2U);
+    assert(distance_sensor_take_diagnostic(&diag) && diag.sensor_id == 3U);
+    unsigned reads_before = range_reads;
+    tick += DISTANCE_POLL_PERIOD_MS;
+    distance_sensor_poll();
+    assert(high_pins & DISTANCE_SENSOR_XSHUT_ARM_UPPER_LEFT_Pin);
+    boot_pending = 1U;
+    tick += DISTANCE_POLL_PERIOD_MS;
+    distance_sensor_poll();
+    assert(recovery_id == 3U && range_reads > reads_before);
+    boot_pending = 0U;
+    tick += DISTANCE_POLL_PERIOD_MS;
+    distance_sensor_poll();
+    assert(recovery_id == DISTANCE_SENSOR_COUNT && !sensors[3].initialized);
+    assert(!(high_pins & DISTANCE_SENSOR_XSHUT_ARM_UPPER_LEFT_Pin));
+    assert(delay_calls == delays_before);
+
+    /* Repairing the module needs no controller reset, preserves sequence,
+     * and accepts a restarted hardware stream counter as a new sample. */
+    failing_address = 0U;
+    tick += DISTANCE_RECOVERY_PERIOD_MS;
+    for (unsigned i = 0U; i < DISTANCE_SENSOR_COUNT; i++)
+        if (i != 3U) sensors[i].last_sample_tick = tick;
+    uint8_t previous_sequence = sensors[3].sample.sequence;
+    for (unsigned step = 0U; step < 3U; step++) {
+        results[2]++;
+        distance_sensor_poll();
+        tick += DISTANCE_POLL_PERIOD_MS;
+    }
+    assert(sensors[3].initialized && recovery_id == DISTANCE_SENSOR_COUNT);
+    assert(sensors[3].sample.sequence >= previous_sequence);
+    poll_index = 3U;
+    distance_sensor_poll();
+    assert(distance_sensor_take_updated(3U, &sample) && sample.valid && sample.distance_mm == 491U);
+    assert(sample.sequence != previous_sequence && delay_calls == delays_before);
+
+    /* Missing data also triggers recovery; only the chosen sensor is reset.
+     * A boot timeout is bounded, isolates that device and reports I2C_ERROR. */
+    tick += DISTANCE_RECOVERY_PERIOD_MS;
+    for (unsigned i = 0U; i < DISTANCE_SENSOR_COUNT; i++)
+        if (i != 3U) sensors[i].last_sample_tick = tick;
+    sensors[3].stream_seen = 1U;
+    distance_sensor_poll();
+    assert(recovery_id == 3U && !sensors[3].initialized);
+    tick += DISTANCE_POLL_PERIOD_MS;
+    distance_sensor_poll();
+    boot_pending = 1U;
+    tick += VL53L1X_BOOT_TIMEOUT_MS;
+    distance_sensor_poll();
+    assert(recovery_id == DISTANCE_SENSOR_COUNT && !sensors[3].initialized);
+    assert(sensors[3].sample.status == DISTANCE_SENSOR_STATUS_I2C_ERROR);
+    assert(sensors[0].initialized && sensors[5].initialized);
+    assert(delay_calls == delays_before);
+    boot_pending = 0U;
+
+    /* Even with all six modules failing, a late host gets fresh INVALID
+     * reports for every ID, and retries never wake two default addresses. */
+    reset_bus(0xFFU);
+    assert(distance_sensor_init() == HAL_ERROR);
+    for (unsigned i = 0U; i < DISTANCE_SENSOR_COUNT; i++)
+        assert(distance_sensor_take_updated(i, &sample) && !sample.valid);
+    while (distance_sensor_take_diagnostic(&diag)) {}
+    tick += DISTANCE_RECOVERY_PERIOD_MS;
+    delays_before = delay_calls;
+    distance_sensor_poll();
+    for (unsigned i = 0U; i < DISTANCE_SENSOR_COUNT; i++) {
+        assert(!sensors[i].initialized);
+        assert(distance_sensor_take_updated(i, &sample));
+        assert(sample.sensor_id == i && !sample.valid && sample.distance_mm == 0xFFFFU);
+        assert(sample.status == DISTANCE_SENSOR_STATUS_I2C_ERROR && sample.sequence == 2U);
+    }
+    for (unsigned step = 0U; step < DISTANCE_SENSOR_COUNT * 3U; step++) {
+        tick += DISTANCE_POLL_PERIOD_MS;
+        distance_sensor_poll();
+    }
+    assert(delay_calls == delays_before && high_pins == 0U);
     return 0;
 }

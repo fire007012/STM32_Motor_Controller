@@ -164,6 +164,12 @@ void osDelay(uint32_t ms)
     default:
         assert(0);
     }
+    /* This fixture disables sensors artificially to isolate queue behavior;
+     * recovery and error heartbeats are exercised by the sensor fixture. */
+    for (unsigned i = 0U; i < DISTANCE_SENSOR_COUNT; i++) {
+        sensors[i].last_recovery_tick = tick;
+        if (!sensors[i].sample.valid) sensors[i].sample.timestamp_ms = tick;
+    }
 }
 int main(void)
 {
