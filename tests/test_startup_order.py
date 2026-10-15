@@ -47,7 +47,7 @@ class StartupOrder(unittest.TestCase):
     def test_wkup_dispenser_sequence_is_ordered_and_nonblocking(self):
         config=(ROOT/'Core/Inc/arm_servo_config.h').read_text(encoding='utf-8')
         source=(ROOT/'Core/Src/main.c').read_text(encoding='utf-8')
-        self.assertRegex(config,r'ARM_SERVO_WK_PLACE_DEG\s+30')
+        self.assertRegex(config,r'ARM_SERVO_WK_PLACE_DEG\s+\(-30\)')
         self.assertRegex(config,r'ARM_SERVO_WK_HOLD_MS\s+1000U')
         self.assertRegex(config,r'ARM_SERVO_WK_SERVO_ANGLE\s+0')
         self.assertRegex(config,r'ARM_SERVO_WK_SERVO_RETURN_ANGLE\s+180')

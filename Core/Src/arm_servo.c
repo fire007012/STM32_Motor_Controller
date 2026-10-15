@@ -315,8 +315,8 @@ void ArmServo_PollButtons(uint8_t k0_pressed, uint8_t k1_pressed)
         return;
     }
     if (remote_owned) return;
-    if (first && !k1_pressed) step_both(-ARM_SERVO_STEP_DEG);
-    else if (second && !k0_pressed) step_both(ARM_SERVO_STEP_DEG);
+    if (first && !k1_pressed) step_both(ARM_SERVO_STEP_DEG);
+    else if (second && !k0_pressed) step_both(-ARM_SERVO_STEP_DEG);
 }
 
 int16_t ArmServo_GetTargetAngle(uint8_t channel)

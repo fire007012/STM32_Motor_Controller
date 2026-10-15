@@ -11,7 +11,7 @@
 
 /* WK_UP dispenser sequence; serviced non-blocking from the RTOS task. */
 #define ARM_SERVO_WK_DEMO_ENABLE        1U
-#define ARM_SERVO_WK_PLACE_DEG          30
+#define ARM_SERVO_WK_PLACE_DEG         (-30)
 #define ARM_SERVO_WK_HOME_DEG           0
 #define ARM_SERVO_WK_MOVE_MS            3000U
 #define ARM_SERVO_WK_HOLD_MS            1000U
@@ -27,10 +27,11 @@
  * The +/-80 limits are software bounds, NOT verified arm clearances. */
 /* CH1 / PC6: RIGHT arm, replaces Y42 ID5. Desired forward is CCW.
  * CH2 / PC7: LEFT arm, replaces Y42 ID6. Desired forward is CW.
- * Positive logical angles mean forward on BOTH arms. Directions below are
- * pulse signs, not a universal CW/CCW guarantee: verify each at +5 degrees.
+ * Physical forward is negative logical angle on both axes. Directions below
+ * are pulse signs, not universal CW/CCW guarantees; see the board test.
  * Mapping restored before commit a5c3e4a: PC6 increases pulse, PC7 decreases
- * pulse. K1 and positive angles/WK_UP are forward; K0 is backward. */
+ * pulse. Physical test shows forward is negative logical angle: K1 and WK_UP
+ * decrease angle; K0 increases it. ROS forward targets must also be negative. */
 #define ARM_SERVO_1_TRAVEL_DEG           180U
 #define ARM_SERVO_1_MIN_PULSE_US         500U
 #define ARM_SERVO_1_MAX_PULSE_US         2500U
