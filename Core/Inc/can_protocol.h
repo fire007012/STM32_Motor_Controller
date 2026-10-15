@@ -22,8 +22,9 @@ extern "C" {
  *            5=rear.
  * Invalid distance is 0xFFFF with status bit0 (VALID) cleared. Sigma is
  * currently unsupported (0xFFFF). Sequence wraps independently per sensor.
- * IDs 0..2 and 5 participate in the local <=300 mm chassis hard-stop,
- * regardless of travel direction.
+ * Distances are sensor raw ranges, WITHOUT the chassis inset correction.
+ * IDs 0/1/2/5 feed direction-aware, dynamic local collision protection.
+ * Ordinary obstacles and range errors never set EMERGENCY (0x20).
  * IDs 3/4 are measurements for ROS stage-controlled lateral alignment;
  * STM32 does not compare them or generate lateral chassis commands.
  * Diagnostic frame 0x111 uses the same sensor_id numbering.

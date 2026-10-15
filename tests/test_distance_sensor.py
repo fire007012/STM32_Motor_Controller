@@ -36,9 +36,9 @@ class DistanceSensorBehavior(unittest.TestCase):
         declarations = source[:source.index('static uint16_t read_be16')]
         functions = '\n'.join(function(source, name) for name in (
             'read_be16', 'sensor_set_xshut', 'sensor_mark_error', 'vl53_init_one',
-            'median_filter', 'vl53_process_ready_sample', 'distance_sensor_init',
+            'vl53_process_ready_sample', 'distance_sensor_init',
             'distance_sensor_poll', 'distance_sensor_take_updated',
-            'distance_sensor_take_diagnostic', 'distance_sensor_take_emergency'))
+            'distance_sensor_take_diagnostic'))
         main = (ROOT / 'Core/Src/main.c').read_text(encoding='utf-8')
         functions += '\n' + '\n'.join(function(main, name) for name in (
             'CAN1_TrySend', 'CAN1_SendDistance', 'CAN1_SendSensorDiag', 'StartSensorTask'))
@@ -63,6 +63,7 @@ void HAL_Delay(uint32_t ms);
 void HAL_GPIO_WritePin(GPIO_TypeDef *port, uint16_t pin, GPIO_PinState state);
 void osDelay(uint32_t ms);
 HAL_StatusTypeDef motor_stop_all(void);
+
 '''
             (tmp / 'test_hal.h').write_text(stub, encoding='utf-8')
             c = tmp / 'check.c'
@@ -86,9 +87,9 @@ HAL_StatusTypeDef motor_stop_all(void);
         declarations = source[:source.index('static uint16_t read_be16')]
         functions = '\n'.join(function(source, name) for name in (
             'read_be16', 'sensor_set_xshut', 'sensor_mark_error', 'vl53_init_one',
-            'median_filter', 'vl53_process_ready_sample', 'distance_sensor_init',
+            'vl53_process_ready_sample', 'distance_sensor_init',
             'distance_sensor_poll', 'distance_sensor_take_updated',
-            'distance_sensor_take_diagnostic', 'distance_sensor_take_emergency'))
+            'distance_sensor_take_diagnostic'))
         main = (ROOT / 'Core/Src/main.c').read_text(encoding='utf-8')
         functions += '\n' + function(main, 'CAN1_SendDistance')
         with tempfile.TemporaryDirectory(prefix='distance-sensors-') as folder:
@@ -129,7 +130,7 @@ void HAL_GPIO_WritePin(GPIO_TypeDef *port,uint16_t pin,GPIO_PinState state);
                          encoding='utf-8')
             exe = tmp / 'check.exe'
             subprocess.run([gcc, '-std=c11', '-Wall', '-Wextra', '-Werror',
-                            '-I', str(tmp), str(c), '-o', str(exe)], check=True)
+                            '-I', str(tmp), '-I', str(ROOT / 'Core/Inc'), str(c), '-o', str(exe)], check=True)
             subprocess.run([str(exe)], check=True)
 
 

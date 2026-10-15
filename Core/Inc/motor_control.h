@@ -7,6 +7,7 @@ extern "C" {
 
 #include "main.h"
 #include "cmsis_os.h"
+#include "distance_sensor.h"
 
 #define MOTOR_COUNT                         4U /* chassis only; former arm IDs 5/6 are PWM */
 #define MOTOR_CMD_QUEUE_LENGTH              16U
@@ -65,11 +66,15 @@ typedef struct {
     uint8_t param1;
     uint16_t seq;
     uint8_t source;
+    uint32_t received_tick;
 } Motor_Command_t;
 
 extern Motor_State_t motors[MOTOR_COUNT];
 
 void motor_control_init(void);
+void motor_update_distance(const distance_sensor_sample_t *sample);
+void motor_set_physical_estop(uint8_t pressed);
+void motor_safety_poll(void);
 HAL_StatusTypeDef motor_enable_all(void);
 HAL_StatusTypeDef motor_configure_addresses(const uint8_t *addr_list, uint8_t count);
 uint8_t motor_get_address(uint8_t idx);

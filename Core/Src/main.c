@@ -28,6 +28,7 @@
 #include "motor_control.h"
 #include "zdt_status.h"
 #include "distance_sensor.h"
+#include "chassis_collision.h"
 #include "arm_servo.h"
 
 /* USER CODE END Includes */
@@ -215,7 +216,7 @@ static void Buttons_Service(void)
         /* ROS owns the heartbeat and motion cache.  The local key only adds
          * an ordered sync marker after commands already accepted by firmware. */
         if ((estop_now == 0U) && (estop_stable == 0U) &&
-            (motor_is_ros_ready(500U) != 0U))
+            (motor_is_ros_ready(CHASSIS_HEARTBEAT_TIMEOUT_MS) != 0U))
         {
           seq = motor_allocate_cmd_seq();
           accepted = motor_request_local_sync_start(seq);
@@ -1273,15 +1274,17 @@ void StartMotorControlTask(void *argument)
 {
   Motor_Command_t cmd;
   HAL_StatusTypeDef cmd_result;
-  uint32_t last_control_tick = HAL_GetTick() - 10U;
+  uint32_t last_control_tick = HAL_GetTick() - CHASSIS_CONTROL_PERIOD_MS;
 
   for(;;)
   {
     uint32_t now = HAL_GetTick();
-    if ((now - last_control_tick) >= 10U)
+    if ((now - last_control_tick) >= CHASSIS_CONTROL_PERIOD_MS)
     {
       last_control_tick = now;
       Buttons_Service();
+      motor_set_physical_estop(HAL_GPIO_ReadPin(ESTOP_BUTTON_GPIO_Port, ESTOP_BUTTON_Pin) == GPIO_PIN_RESET);
+      motor_safety_poll();
       ArmServo_PollDemo(HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET,
                        HAL_GPIO_ReadPin(ESTOP_BUTTON_GPIO_Port, ESTOP_BUTTON_Pin) == GPIO_PIN_RESET);
       /* Drain a bounded burst, with interrupts enabled between commands.
@@ -1355,7 +1358,7 @@ void StartHeartbeatTask(void *argument)
 
   for(;;)
   {
-    if (motor_is_ros_timeout(500U) == 1U)
+    if (motor_is_ros_timeout(CHASSIS_HEARTBEAT_TIMEOUT_MS) == 1U)
     {
       if (timeout_latched == 0U)
       {
@@ -1375,7 +1378,6 @@ void StartHeartbeatTask(void *argument)
 void StartSensorTask(void *argument)
 {
   uint8_t i;
-  distance_sensor_sample_t sample;
   distance_sensor_diag_t diagnostic;
   distance_sensor_sample_t pending_samples[DISTANCE_SENSOR_COUNT] = {0};
   distance_sensor_diag_t pending_diagnostics[DISTANCE_SENSOR_COUNT] = {0};
@@ -1391,6 +1393,7 @@ void StartSensorTask(void *argument)
     {
       if (distance_sensor_take_updated(i, &pending_samples[i]) == 1U)
       {
+        motor_update_distance(&pending_samples[i]);
         /* Replace unsent periodic data with the newest sample for this sensor. */
         sample_pending[i] = 1U;
       }
@@ -1400,13 +1403,6 @@ void StartSensorTask(void *argument)
     {
       pending_diagnostics[diagnostic.sensor_id] = diagnostic;
       diagnostic_pending[diagnostic.sensor_id] = 1U;
-    }
-
-    if (distance_sensor_take_emergency(&sample) == 1U)
-    {
-      /* Keep the local stop active if a host tries to restart while an
-       * obstacle remains inside the hard-stop distance. */
-      (void)motor_stop_all();
     }
 
     /* Give one-shot errors the first available queue slots. Retain each
@@ -1429,7 +1425,7 @@ void StartSensorTask(void *argument)
       }
     }
 
-    osDelay(10U);
+    osDelay(DISTANCE_POLL_PERIOD_MS);
   }
 }
 

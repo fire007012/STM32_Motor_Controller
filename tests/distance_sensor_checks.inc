@@ -2,7 +2,8 @@ static void prepare(uint16_t distance, uint8_t status)
 {
     memset(results, 0, sizeof(results));
     results[0] = status;
-    results[2] = 1U;
+    static uint8_t stream;
+    results[2] = ++stream;
     results[13] = (uint8_t)(distance >> 8);
     results[14] = (uint8_t)distance;
     range_read_failure = ready_status = 0U;
@@ -47,12 +48,9 @@ int main(void)
     /* Close targets on upper sensors do not request a local chassis stop. */
     prepare(100U, 9U);
     for (unsigned i = 0; i < DISTANCE_SENSOR_COUNT; i++) {
-        sensors[i].filter_count = sensors[i].filter_index = 0U;
         vl53_process_ready_sample(&sensors[i]);
         assert(distance_sensor_take_updated(i, &sample) && sample.valid);
-        assert(!!(sample.status & DISTANCE_SENSOR_STATUS_EMERGENCY) == (i < 3U || i == 5U));
-        assert(distance_sensor_take_emergency(&sample) == (i < 3U || i == 5U));
-        assert(!distance_sensor_take_emergency(&sample));
+        assert(!(sample.status & DISTANCE_SENSOR_STATUS_EMERGENCY));
     }
 
     /* An invalid current range cannot borrow an old valid median. */
@@ -60,7 +58,7 @@ int main(void)
     vl53_process_ready_sample(&sensors[3]);
     assert(distance_sensor_take_updated(3U, &sample));
     assert(!sample.valid && sample.distance_mm == 0xFFFFU && sample.status == 2U);
-    assert(sensors[3].filter_count == 1U);
+    assert(sensors[3].last_valid_distance_mm == 98U);
     assert(distance_sensor_take_diagnostic(&diag) && diag.sensor_id == 3U && diag.error_code == 2U);
 
     prepare(500U, 7U);
@@ -98,25 +96,23 @@ int main(void)
     distance_sensor_poll();
     assert(distance_sensor_take_updated(4U, &sample) && sample.valid);
 
-    /* Rear threshold includes exactly 300 mm, but not 301 mm. */
-    prepare(306U, 9U); /* Corrected range = 300 mm. */
-    sensors[5].filter_count = sensors[5].filter_index = 0U;
+    /* Report rear raw ranges without inset correction or emergency tagging. */
+    prepare(306U, 9U); /* ST range conversion = 300 mm. */
     vl53_process_ready_sample(&sensors[5]);
-    assert(distance_sensor_take_emergency(&sample) && sample.sensor_id == 5U);
-    assert(sample.distance_mm == 300U);
-    prepare(307U, 9U); /* Corrected range = 301 mm. */
-    sensors[5].filter_count = sensors[5].filter_index = 0U;
+    assert(distance_sensor_take_updated(5U, &sample));
+    assert(sample.distance_mm == 300U && sample.status == 1U);
+    prepare(307U, 9U);
     vl53_process_ready_sample(&sensors[5]);
-    assert(!distance_sensor_take_emergency(&sample));
+    assert(distance_sensor_take_updated(5U, &sample));
+    assert(sample.distance_mm == 301U && sample.status == 1U);
 
     /* Rear invalid/timeout data keeps ID 5 in distance and diagnostic reports. */
     prepare(0U, 9U);
     vl53_process_ready_sample(&sensors[5]);
     assert(distance_sensor_take_updated(5U, &sample) && !sample.valid);
     assert(sample.distance_mm == 0xFFFFU && sample.status == 2U);
-    assert(!distance_sensor_take_emergency(&sample));
     assert(distance_sensor_take_diagnostic(&diag) && diag.sensor_id == 5U);
-    assert(diag.error_code == 2U);
+    assert(diag.error_code == 2U && diag.last_distance_mm == 301U);
     ready_status = 1U;
     tick += 201U;
     poll_index = 5U;
@@ -132,5 +128,30 @@ int main(void)
     assert(distance_sensor_take_updated(5U, &sample) && sample.status == 8U);
     assert(distance_sensor_take_diagnostic(&diag) && diag.sensor_id == 5U);
     assert(diag.error_code == 1U);
+    /* Equal distances are new samples only if hardware stream advances.
+     * Each CAN sequence wraps independently, including rear ID 5. */
+    for (uint8_t id = 0U; id < DISTANCE_SENSOR_COUNT; id += 5U) {
+        prepare(500U, 9U);
+        sensors[id].initialized = 1U;
+        sensors[id].stream_seen = 0U;
+        sensors[id].sample.sequence = 254U;
+        results[2] = 255U;
+        vl53_process_ready_sample(&sensors[id]);
+        assert(distance_sensor_take_updated(id, &sample) && sample.sequence == 255U);
+        uint32_t stamp = sample.timestamp_ms;
+        tick += 20U;
+        vl53_process_ready_sample(&sensors[id]);
+        assert(!distance_sensor_take_updated(id, &sample));
+        assert(sensors[id].sample.timestamp_ms == stamp);
+        results[2] = 0U; /* legitimate hardware stream wrap */
+        vl53_process_ready_sample(&sensors[id]);
+        assert(distance_sensor_take_updated(id, &sample) && sample.sequence == 0U && sample.valid);
+        assert(sensors[1].sample.sequence == 0U);
+        tick += DISTANCE_SAMPLE_TIMEOUT_MS + 1U;
+        ready_status = 0U; /* stuck-ready duplicate also expires */
+        poll_index = id;
+        distance_sensor_poll();
+        assert(distance_sensor_take_updated(id, &sample) && sample.status == 4U);
+    }
     return 0;
 }

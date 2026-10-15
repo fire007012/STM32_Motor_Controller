@@ -61,7 +61,6 @@ HAL_StatusTypeDef distance_sensor_init(void);
 void distance_sensor_poll(void);
 uint8_t distance_sensor_take_updated(uint8_t sensor_id, distance_sensor_sample_t *sample);
 uint8_t distance_sensor_take_diagnostic(distance_sensor_diag_t *diagnostic);
-uint8_t distance_sensor_take_emergency(distance_sensor_sample_t *sample);
 
 #ifdef __cplusplus
 }

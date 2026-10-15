@@ -50,6 +50,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/zdt_can_driver.c
     Core/Src/motor_control.c
     Core/Src/zdt_status.c
+    Core/Src/chassis_collision.c
     Core/Src/distance_sensor.c
     Core/Src/arm_servo.c
 )

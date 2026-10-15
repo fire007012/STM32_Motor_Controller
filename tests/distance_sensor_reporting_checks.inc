@@ -1,6 +1,6 @@
 CAN_HandleTypeDef hcan1 = {0U}, hcan2 = {1U};
 uint32_t test_primask;
-static unsigned free_slots, sent_count, task_cycle, stop_count;
+static unsigned free_slots, sent_count, task_cycle, stop_count, range_updates;
 static CAN_TxFrame_t sent[512];
 static jmp_buf task_done;
 
@@ -26,6 +26,9 @@ HAL_StatusTypeDef HAL_CAN_AddTxMessage(CAN_HandleTypeDef *bus,
 }
 HAL_StatusTypeDef motor_stop_all(void)
 { stop_count++; return HAL_OK; }
+
+void motor_update_distance(const distance_sensor_sample_t *sample)
+{ assert(sample->sensor_id < DISTANCE_SENSOR_COUNT); range_updates++; }
 
 static void fill_queue(unsigned count)
 {
@@ -57,7 +60,7 @@ static void expect_report(unsigned index, uint32_t id, uint8_t sensor,
 /* TASK FUNCTIONS */
 void osDelay(uint32_t ms)
 {
-    assert(ms == 10U); /* Retry is bounded and still yields to other tasks. */
+    assert(ms == DISTANCE_POLL_PERIOD_MS); /* Retry is bounded and still yields to other tasks. */
     switch (task_cycle++) {
     case 0U:
         /* Initialization failure has consumed the driver's one-shot flags,
@@ -118,6 +121,7 @@ void osDelay(uint32_t ms)
         break;
     case 7U:
         assert(sensors[4].sample.sequence == 2U);
+        results[2] = 2U;
         results[13] = 3U;
         results[14] = 32U; /* 800 mm raw. */
         break;
@@ -137,28 +141,24 @@ void osDelay(uint32_t ms)
         fill_queue(64U);
         sensors[4].initialized = 0U;
         sensors[0].initialized = 1U;
-        sensors[0].filter_count = sensors[0].filter_index = 0U;
         results[13] = 0U;
         results[14] = 100U;
         ready_status = 0U;
         break;
     case 10U:
-        assert(stop_count == 1U);
-        assert(sensors[0].sample.status == (DISTANCE_SENSOR_STATUS_VALID |
-                                            DISTANCE_SENSOR_STATUS_EMERGENCY));
+        assert(stop_count == 0U && range_updates > 0U);
+        assert(sensors[0].sample.status == DISTANCE_SENSOR_STATUS_VALID);
         sensors[0].initialized = 0U;
         sensors[DIST_SENSOR_REAR].initialized = 1U;
-        sensors[DIST_SENSOR_REAR].filter_count = sensors[DIST_SENSOR_REAR].filter_index = 0U;
         break;
     case 11U:
-        assert(stop_count == 2U);
-        assert(sensors[DIST_SENSOR_REAR].sample.status == (DISTANCE_SENSOR_STATUS_VALID |
-                                                        DISTANCE_SENSOR_STATUS_EMERGENCY));
+        assert(stop_count == 0U);
+        assert(sensors[DIST_SENSOR_REAR].sample.status == DISTANCE_SENSOR_STATUS_VALID);
         assert(can_transport_get_failure_count(&hcan1) > 0U);
         break;
     case 12U:
         /* A persistent rear obstacle must request another stop despite CAN congestion. */
-        assert(stop_count == 3U);
+        assert(stop_count == 0U);
         assert(test_primask == 0U);
         longjmp(task_done, 1);
     default:
@@ -175,6 +175,6 @@ int main(void)
     assert(CAN1_SendSensorDiag(NULL) == HAL_ERROR);
     fill_queue(64U);
     if (setjmp(task_done) == 0) StartSensorTask(NULL);
-    puts("PASS sensor task: init/timeout retry, diagnostic priority, no duplicates, latest sample and front/rear local stop under full CAN queue");
+    puts("PASS sensor task: init/timeout retry, diagnostic priority, no duplicates, latest sample and front/rear raw ranges without emergency under full CAN queue");
     return 0;
 }

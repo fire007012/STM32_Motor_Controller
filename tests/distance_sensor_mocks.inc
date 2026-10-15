@@ -19,7 +19,7 @@ void HAL_GPIO_WritePin(GPIO_TypeDef *port, uint16_t pin, GPIO_PinState state)
         assigned_pins[pin] = 0U;
     }
 }
-static void i2c1_configure(void) { i2c1_initialized = 1U; }
+static void i2c1_configure(void) { i2c1_initialized = 1U; (void)i2c_transaction_tick; }
 static HAL_StatusTypeDef vl53_read_u16(uint8_t address, uint16_t reg, uint16_t *value)
 {
     if (address == 0x29U) {

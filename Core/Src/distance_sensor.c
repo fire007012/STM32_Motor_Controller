@@ -1,4 +1,5 @@
 #include "distance_sensor.h"
+#include "chassis_safety_config.h"
 
 #include <string.h>
 
@@ -24,17 +25,15 @@
 #define VL53L1X_INTERMEASUREMENT_REG      0x006CU
 #define VL53L1X_RESULT_RANGE_STATUS_REG   0x0089U
 
-#define VL53L1X_I2C_TIMEOUT_MS            10U
-#define VL53L1X_BOOT_TIMEOUT_MS           100U
-#define VL53L1X_SAMPLE_TIMEOUT_MS         200U
-#define VL53L1X_INTERMEASUREMENT_MS       50U
-#define VL53L1X_MIN_DISTANCE_MM           50U
-#define VL53L1X_MAX_DISTANCE_MM           3000U
-#define VL53L1X_EMERGENCY_DISTANCE_MM     300U
-#define VL53L1X_TIMING_BUDGET_US          33000U
+#define VL53L1X_I2C_TIMEOUT_MS DISTANCE_I2C_TIMEOUT_MS
+#define VL53L1X_BOOT_TIMEOUT_MS DISTANCE_BOOT_TIMEOUT_MS
+#define VL53L1X_SAMPLE_TIMEOUT_MS DISTANCE_SAMPLE_TIMEOUT_MS
+#define VL53L1X_INTERMEASUREMENT_MS DISTANCE_INTERMEASUREMENT_MS
+#define VL53L1X_MIN_DISTANCE_MM CHASSIS_RANGE_MIN_MM
+#define VL53L1X_MAX_DISTANCE_MM CHASSIS_RANGE_MAX_MM
+#define VL53L1X_TIMING_BUDGET_US DISTANCE_TIMING_BUDGET_US
 #define VL53L1X_TIMING_GUARD_US           4528U
 #define VL53L1X_TARGET_RATE               0x0A00U
-#define VL53L1X_FILTER_SIZE                3U
 
 #define VL53L1X_REG_RESULT_STATUS         0U
 #define VL53L1X_REG_RESULT_STREAM_COUNT   2U
@@ -53,9 +52,9 @@ typedef struct {
     uint8_t consecutive_error_count;
     uint16_t fast_osc_frequency;
     uint16_t osc_calibrate_val;
-    uint16_t filter_mm[VL53L1X_FILTER_SIZE];
-    uint8_t filter_count;
-    uint8_t filter_index;
+    uint16_t last_valid_distance_mm;
+    uint8_t last_stream_count;
+    uint8_t stream_seen;
     uint32_t last_sample_tick;
     distance_sensor_sample_t sample;
     uint8_t updated;
@@ -66,8 +65,7 @@ typedef struct {
 static vl53l1x_sensor_t sensors[DISTANCE_SENSOR_COUNT];
 static uint8_t i2c1_initialized = 0U;
 static uint8_t poll_index = 0U;
-static uint8_t emergency_pending = 0U;
-static distance_sensor_sample_t emergency_sample;
+static uint32_t i2c_transaction_tick;
 
 static uint16_t read_be16(const uint8_t *data)
 {
@@ -112,11 +110,10 @@ static void i2c1_abort(void)
 
 static HAL_StatusTypeDef i2c1_wait_sr1(uint32_t flag)
 {
-    uint32_t start_tick = HAL_GetTick();
     uint32_t errors = I2C_SR1_BERR | I2C_SR1_ARLO | I2C_SR1_AF | I2C_SR1_OVR | I2C_SR1_TIMEOUT;
 
     while ((I2C1->SR1 & flag) == 0U) {
-        if ((I2C1->SR1 & errors) != 0U || (HAL_GetTick() - start_tick) >= VL53L1X_I2C_TIMEOUT_MS) {
+        if ((I2C1->SR1 & errors) != 0U || (HAL_GetTick() - i2c_transaction_tick) >= VL53L1X_I2C_TIMEOUT_MS) {
             i2c1_abort();
             return HAL_ERROR;
         }
@@ -126,10 +123,8 @@ static HAL_StatusTypeDef i2c1_wait_sr1(uint32_t flag)
 
 static HAL_StatusTypeDef i2c1_wait_idle(void)
 {
-    uint32_t start_tick = HAL_GetTick();
-
     while ((I2C1->SR2 & I2C_SR2_BUSY) != 0U) {
-        if ((HAL_GetTick() - start_tick) >= VL53L1X_I2C_TIMEOUT_MS) {
+        if ((HAL_GetTick() - i2c_transaction_tick) >= VL53L1X_I2C_TIMEOUT_MS) {
             i2c1_abort();
             return HAL_ERROR;
         }
@@ -161,6 +156,7 @@ static HAL_StatusTypeDef vl53_write(uint8_t address, uint16_t reg, const uint8_t
 {
     uint16_t i;
 
+    i2c_transaction_tick = HAL_GetTick();
     if ((data == NULL) || (length == 0U) || (i2c1_wait_idle() != HAL_OK) ||
         (i2c1_start(address, 0U) != HAL_OK)) {
         return HAL_ERROR;
@@ -193,6 +189,8 @@ static HAL_StatusTypeDef vl53_write(uint8_t address, uint16_t reg, const uint8_t
 static HAL_StatusTypeDef vl53_read(uint8_t address, uint16_t reg, uint8_t *data, uint16_t length)
 {
     uint16_t remaining = length;
+
+    i2c_transaction_tick = HAL_GetTick();
 
     if ((data == NULL) || (length == 0U) || (i2c1_wait_idle() != HAL_OK) ||
         (i2c1_start(address, 0U) != HAL_OK)) {
@@ -530,35 +528,6 @@ static HAL_StatusTypeDef vl53_init_one(vl53l1x_sensor_t *sensor)
     return HAL_OK;
 }
 
-static uint16_t median_filter(vl53l1x_sensor_t *sensor, uint16_t distance_mm)
-{
-    uint16_t ordered[VL53L1X_FILTER_SIZE];
-    uint8_t i;
-    uint8_t j;
-    uint16_t tmp;
-
-    sensor->filter_mm[sensor->filter_index] = distance_mm;
-    sensor->filter_index = (uint8_t)((sensor->filter_index + 1U) % VL53L1X_FILTER_SIZE);
-    if (sensor->filter_count < VL53L1X_FILTER_SIZE) {
-        sensor->filter_count++;
-    }
-
-    for (i = 0U; i < sensor->filter_count; i++) {
-        ordered[i] = sensor->filter_mm[i];
-    }
-    for (i = 0U; i < sensor->filter_count; i++) {
-        for (j = (uint8_t)(i + 1U); j < sensor->filter_count; j++) {
-            if (ordered[j] < ordered[i]) {
-                tmp = ordered[i];
-                ordered[i] = ordered[j];
-                ordered[j] = tmp;
-            }
-        }
-    }
-
-    return ordered[sensor->filter_count / 2U];
-}
-
 static void vl53_update_dss(vl53l1x_sensor_t *sensor, const uint8_t results[17])
 {
     uint16_t spad_count = read_be16(&results[VL53L1X_REG_RESULT_SPADS_HI]);
@@ -617,7 +586,7 @@ static void vl53_process_ready_sample(vl53l1x_sensor_t *sensor)
     uint8_t raw_status;
     uint8_t stream_count;
     uint16_t raw_distance;
-    uint16_t filtered_distance;
+
 
     if (vl53_read(sensor->address, VL53L1X_RESULT_RANGE_STATUS_REG, results, sizeof(results)) != HAL_OK ||
         vl53_write_u8(sensor->address, VL53L1X_INTERRUPT_CLEAR_REG, 0x01U) != HAL_OK) {
@@ -627,6 +596,9 @@ static void vl53_process_ready_sample(vl53l1x_sensor_t *sensor)
 
     raw_status = results[VL53L1X_REG_RESULT_STATUS];
     stream_count = results[VL53L1X_REG_RESULT_STREAM_COUNT];
+    if (sensor->stream_seen && sensor->last_stream_count == stream_count) return;
+    sensor->stream_seen = 1U;
+    sensor->last_stream_count = stream_count;
     raw_distance = read_be16(&results[VL53L1X_REG_RESULT_RANGE_HI]);
     raw_distance = (uint16_t)(((uint32_t)raw_distance * 2011U + 0x0400U) / 0x0800U);
 
@@ -641,13 +613,13 @@ static void vl53_process_ready_sample(vl53l1x_sensor_t *sensor)
     sensor->sample.status = 0U;
     sensor->sample.valid = 0U;
 
-    if ((raw_status == 9U) && (stream_count != 0U)) {
-        /* Reject invalid raw ranges before filtering: an old good median
-         * must not make a failed current measurement look valid. */
+    if ((raw_status & 0x1FU) == 9U) {
+        /* Publish the current physical range, without history filtering or
+         * mounting inset correction. A new close return must not be hidden. */
         if ((raw_distance >= VL53L1X_MIN_DISTANCE_MM) &&
             (raw_distance <= VL53L1X_MAX_DISTANCE_MM)) {
-            filtered_distance = median_filter(sensor, raw_distance);
-            sensor->sample.distance_mm = filtered_distance;
+            sensor->sample.distance_mm = raw_distance;
+            sensor->last_valid_distance_mm = raw_distance;
             sensor->sample.valid = 1U;
             sensor->sample.status = DISTANCE_SENSOR_STATUS_VALID;
             sensor->consecutive_error_count = 0U;
@@ -657,14 +629,6 @@ static void vl53_process_ready_sample(vl53l1x_sensor_t *sensor)
                 vl53_setup_manual_calibration(sensor);
             }
 
-            /* Upper arm sensors guide lateral alignment, not obstacle hard-stop. */
-            if (((sensor->sample.sensor_id <= DIST_SENSOR_RIGHT) ||
-                 (sensor->sample.sensor_id == DIST_SENSOR_REAR)) &&
-                (filtered_distance <= VL53L1X_EMERGENCY_DISTANCE_MM)) {
-                sensor->sample.status |= DISTANCE_SENSOR_STATUS_EMERGENCY;
-                emergency_sample = sensor->sample;
-                emergency_pending = 1U;
-            }
         } else {
             sensor->sample.distance_mm = 0xFFFFU;
             sensor->sample.status = DISTANCE_SENSOR_STATUS_OUT_OF_RANGE;
@@ -704,8 +668,8 @@ HAL_StatusTypeDef distance_sensor_init(void)
     i2c1_configure();
     memset(sensors, 0, sizeof(sensors));
     poll_index = 0U;
-    emergency_pending = 0U;
     for (i = 0U; i < DISTANCE_SENSOR_COUNT; i++) {
+        sensors[i].last_valid_distance_mm = 0xFFFFU;
         sensors[i].xshut_port = DISTANCE_SENSOR_XSHUT_GPIO_Port;
         sensors[i].xshut_pin = pins[i];
         sensors[i].address = addresses[i];
@@ -752,7 +716,6 @@ void distance_sensor_poll(void)
 
     if ((gpio_status & 0x01U) == 0U) {
         vl53_process_ready_sample(sensor);
-        return;
     }
 
     now = HAL_GetTick();
@@ -790,7 +753,7 @@ uint8_t distance_sensor_take_diagnostic(distance_sensor_diag_t *diagnostic)
             diagnostic->error_code = sensors[i].diagnostic_error_code;
             diagnostic->consecutive_error_count = sensors[i].consecutive_error_count;
             diagnostic->status = sensors[i].sample.status;
-            diagnostic->last_distance_mm = sensors[i].sample.distance_mm;
+            diagnostic->last_distance_mm = sensors[i].last_valid_distance_mm;
             diagnostic->sequence = sensors[i].sequence;
             sensors[i].diagnostic_pending = 0U;
             return 1U;
@@ -798,15 +761,4 @@ uint8_t distance_sensor_take_diagnostic(distance_sensor_diag_t *diagnostic)
     }
 
     return 0U;
-}
-
-uint8_t distance_sensor_take_emergency(distance_sensor_sample_t *sample)
-{
-    if ((sample == NULL) || (emergency_pending == 0U)) {
-        return 0U;
-    }
-
-    *sample = emergency_sample;
-    emergency_pending = 0U;
-    return 1U;
 }

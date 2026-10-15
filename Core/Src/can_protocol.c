@@ -104,6 +104,16 @@ void CAN1_RxCallback(CAN_RxHeaderTypeDef rxHeader, uint8_t rxData[8])
     if (rxHeader.IDE == CAN_ID_EXT) {
         /* Removed arm Y42 IDs must not be driven by stale ROS nodes. */
         if (((id >> 8) == 5U) || ((id >> 8) == 6U)) return;
+        /* Opaque driver motion/AA frames bypass body-speed and sync checks.
+         * Keep reads, configuration and stop bridging; chassis motion uses
+         * the unchanged 0x100 or legacy 0x201 command interfaces. */
+        if ((rxData[0] == 0xF5U) || (rxData[0] == 0xF6U) ||
+            (rxData[0] == 0xFAU) || (rxData[0] == 0xFBU) ||
+            (rxData[0] == 0xFDU) || (rxData[0] == 0xFFU) ||
+            (rxData[0] == 0xAAU) || (rxData[0] == 0x9AU)) {
+            motor_record_rx_result(0U);
+            return;
+        }
         CAN_TxHeaderTypeDef header = {0};
         HAL_StatusTypeDef status;
         header.ExtId = rxHeader.ExtId;
