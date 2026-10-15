@@ -296,6 +296,7 @@ static uint8_t Servo_ChecksumOk(const uint8_t data[8])
 
 uint8_t Servo_HandlePositionCanCommand(const uint8_t data[8])
 {
+  if (wkup_demo_state != WKUP_DEMO_IDLE) return 3U;
   if ((data == NULL) || (data[0] != POSITION_SERVO_CMD) || !Servo_ChecksumOk(data) ||
       (data[1] == 0U) || ((data[1] & ~0x03U) != 0U) || data[4] || data[5]) return 1U;
   if (!servo_initialized) return 3U;
@@ -313,7 +314,8 @@ void Servo_HandleCanCommand(const uint8_t data[8])
   uint16_t hold_ms;
   uint32_t now;
 
-  if (servo_remote_owned || (data == NULL) || (data[0] != SERVO_CAN_CMD_CODE) || (Servo_ChecksumOk(data) == 0U))
+  if (wkup_demo_state != WKUP_DEMO_IDLE || servo_remote_owned || (data == NULL) ||
+      (data[0] != SERVO_CAN_CMD_CODE) || (Servo_ChecksumOk(data) == 0U))
   {
     return;
   }
@@ -360,10 +362,10 @@ static void Servo_SetLocalBoth(int16_t angle)
 {
   uint32_t primask = __get_PRIMASK();
   __disable_irq();
-  if (!servo_remote_owned) {
-    servo_return_pending = 0U;
-    Servo_SetBoth(angle);
-  }
+  /* ARM_SERVO_KEY_TEST_ENABLE=0 explicitly assigns K0/K1 to local SG90
+   * bench control, so a stale remote arm owner must not disable this test. */
+  servo_return_pending = 0U;
+  Servo_SetBoth(angle);
   if (!primask) __enable_irq();
 }
 #endif
@@ -1244,8 +1246,7 @@ static void WkupDemo_Service(void)
 
   switch (wkup_demo_state) {
     case WKUP_DEMO_IDLE:
-      if (!servo_remote_owned &&
-          ArmServo_PollDemo(HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET)) {
+      if (ArmServo_PollDemo(HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET)) {
         const uint32_t primask = __get_PRIMASK();
         __disable_irq();
         if (ArmServo_DemoSetAngle(ARM_SERVO_WK_PLACE_DEG)) {

@@ -65,9 +65,10 @@ void CAN1_RxCallback(CAN_RxHeaderTypeDef rxHeader, uint8_t rxData[8])
     if ((rxHeader.IDE == CAN_ID_EXT) && (id == ARM_SERVO_CAN_ID)) {
         if (rxHeader.DLC == 8U) {
             uint8_t result = ArmServo_HandleCanCommand(rxData);
-            if (result == 0U) {
-                if (rxData[0] == ARM_SERVO_CMD_RELEASE) Servo_ReleaseLocalControl();
-                else Servo_AcquireRemoteControl();
+            if ((result == 0U) && (rxData[0] == ARM_SERVO_CMD_RELEASE)) {
+                /* The arm driver owns its own key lock. Release the SG90 lock
+                 * only after the paired ROS sequence is fully finished. */
+                Servo_ReleaseLocalControl();
             }
             send_servo_ack(ARM_SERVO_ACK_ID, ARM_SERVO_ACK_CODE, rxData, result);
         }

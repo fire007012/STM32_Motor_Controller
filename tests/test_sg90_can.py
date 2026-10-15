@@ -23,6 +23,7 @@ class PositionServoCAN(unittest.TestCase):
 #include <stddef.h>
 #include <assert.h>
 #define ARM_SERVO_KEY_TEST_ENABLE 0U
+#define WKUP_DEMO_IDLE 0U
 #define POSITION_SERVO_CMD 0x22U
 #define HAL_OK 0
 #define HAL_ERROR 1
@@ -33,6 +34,7 @@ typedef struct {uint32_t pulse;} TIM_HandleTypeDef;
 static TIM_HandleTypeDef htim3,htim4;
 static uint8_t servo_return_pending,servo_return_angle,servo_return_mask,servo_initialized,servo_remote_owned;
 static uint32_t tick,servo_return_tick,primask;
+static unsigned wkup_demo_state;
 static uint32_t HAL_GetTick(void){return tick;}
 static uint32_t __get_PRIMASK(void){return primask;}
 static void __disable_irq(void){primask=1;}
@@ -45,7 +47,7 @@ int main(void){
  assert(Servo_Init()==HAL_OK);assert(htim3.pulse==250 && htim4.pulse==250);
  uint8_t d[8]={0x22,1,0,0,0,0,42,0};sum(d);
  assert(Servo_HandlePositionCanCommand(d)==0);assert(htim3.pulse==55 && htim4.pulse==250);
- assert(servo_remote_owned);Servo_SetLocalBoth(180);assert(htim3.pulse==55);
+ assert(servo_remote_owned);Servo_SetLocalBoth(180);assert(htim3.pulse==250);
  Servo_ReleaseLocalControl();Servo_SetLocalBoth(180);assert(htim3.pulse==250);
  d[1]=2;sum(d);assert(Servo_HandlePositionCanCommand(d)==0);assert(htim4.pulse==55);
  d[1]=3;d[2]=90;d[3]=181;sum(d);assert(Servo_HandlePositionCanCommand(d)==2);
