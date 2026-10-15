@@ -29,13 +29,13 @@
  * CH2 / PC7: LEFT arm, replaces Y42 ID6. Desired forward is CW.
  * Positive logical angles mean forward on BOTH arms. Directions below are
  * pulse signs, not a universal CW/CCW guarantee: verify each at +5 degrees.
- * Mapping after the user's WK_UP direction test: PC6 increases pulse,
- * PC7 decreases pulse. K0, WK_UP and ROS positive angles share this mapping. */
+ * Mapping restored before commit a5c3e4a: PC6 increases pulse, PC7 decreases
+ * pulse. K1 and positive angles/WK_UP are forward; K0 is backward. */
 #define ARM_SERVO_1_TRAVEL_DEG           180U
 #define ARM_SERVO_1_MIN_PULSE_US         500U
 #define ARM_SERVO_1_MAX_PULSE_US         2500U
 #define ARM_SERVO_1_ZERO_PULSE_US        1500U
-#define ARM_SERVO_1_DIRECTION           (-1)
+#define ARM_SERVO_1_DIRECTION            1
 #define ARM_SERVO_1_MIN_ANGLE_DEG       (-80)
 #define ARM_SERVO_1_MAX_ANGLE_DEG        80
 
@@ -43,7 +43,7 @@
 #define ARM_SERVO_2_MIN_PULSE_US         500U
 #define ARM_SERVO_2_MAX_PULSE_US         2500U
 #define ARM_SERVO_2_ZERO_PULSE_US        1500U
-#define ARM_SERVO_2_DIRECTION            1
+#define ARM_SERVO_2_DIRECTION           (-1)
 #define ARM_SERVO_2_MIN_ANGLE_DEG       (-80)
 #define ARM_SERVO_2_MAX_ANGLE_DEG        80
 

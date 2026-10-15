@@ -47,21 +47,21 @@ int main(void){
  prepare();assert(ArmServo_Init()==HAL_OK);angles(0);
  assert(configured==15 && started==7 && fake_clock_flags==3);
  assert(saved_timer.Init.Prescaler==71 && saved_timer.Init.Period==19999);
- press(0);angles(5);
+ press(0);angles(-5);
  long delta=(2000*5+ARM_SERVO_1_TRAVEL_DEG/2)/ARM_SERVO_1_TRAVEL_DEG;
- assert(fake_compare[0]==(uint32_t)(1500+ARM_SERVO_1_DIRECTION*delta));
- assert(fake_compare[1]==(uint32_t)(1500+ARM_SERVO_2_DIRECTION*delta));
- k0=1;poll_ms(3000);angles(10);k0=0;poll_ms(30);
- press(1);angles(5);press(1);angles(0);
+ assert(fake_compare[0]==(uint32_t)(1500-ARM_SERVO_1_DIRECTION*delta));
+ assert(fake_compare[1]==(uint32_t)(1500-ARM_SERVO_2_DIRECTION*delta));
+ k0=1;poll_ms(3000);angles(-10);k0=0;poll_ms(30);
+ press(1);angles(-5);press(1);angles(0);
  k0=1;poll_ms(5);k0=0;poll_ms(30);angles(0);
- for(unsigned i=0;i<40;i++)press(0);angles(80);
- for(unsigned i=0;i<40;i++)press(1);angles(-80);
+ for(unsigned i=0;i<40;i++)press(0);angles(-80);
+ for(unsigned i=0;i<40;i++)press(1);angles(80);
  for(unsigned i=0;i<16;i++)press(0);angles(0);
  k0=k1=1;poll_ms(100);angles(0);k1=0;poll_ms(100);angles(0);
- k0=0;poll_ms(30);press(0);angles(5);
+ k0=0;poll_ms(30);press(0);angles(-5);
  tick=UINT32_MAX-10U;press(1);angles(0);
  prepare();k0=1;assert(ArmServo_Init()==HAL_OK);poll_ms(1000);angles(0);
- k0=0;poll_ms(30);press(0);angles(5);
+ k0=0;poll_ms(30);press(0);angles(-5);
  prepare();assert(ArmServo_Init()==HAL_OK);
  command(0x21,150,-200,3,0);assert(ArmServo_GetTargetAngle(1)==15 && ArmServo_GetTargetAngle(2)==-20);
  press(0);assert(ArmServo_GetTargetAngle(1)==15 && ArmServo_GetTargetAngle(2)==-20);
@@ -81,7 +81,7 @@ int main(void){
  command(0x21,150,-200,3,0);
  command(0x21,0,0,4,1);command(0x21,0,0,0,1);command(0x99,0,0,3,1);
  command(0x23,0,0,0,0);press(1);assert(ArmServo_GetTargetAngle(1)==15);
- command(0x21,0,0,3,0);angles(0);command(0x24,0,0,0,0);press(0);angles(5);
+ command(0x21,0,0,3,0);angles(0);command(0x24,0,0,0,0);press(0);angles(-5);
  command(0x21,0,0,3,0);command(0x24,0,0,0,0);angles(0);
  ArmServo_PollDemo(1);tick+=50;assert(ArmServo_PollDemo(1)==0U);angles(0); /* held at boot */
  ArmServo_PollDemo(0);tick+=25;ArmServo_PollDemo(0);
@@ -96,7 +96,7 @@ int main(void){
  assert(ArmServo_DemoSetAngle(0)==1U);angles(0);
  assert(ArmServo_DemoEnd()==1U);assert(!ArmServo_DemoActive());
  command(0x21,50,50,3,0);command(0x24,0,0,0,0);angles(5);
- fake_primask=1;press(1);assert(fake_primask==1);angles(0);fake_primask=0;
+ fake_primask=1;press(1);assert(fake_primask==1);angles(10);fake_primask=0;
  prepare();fail_start=1;assert(ArmServo_Init()==HAL_ERROR);assert(started==0 && stopped==1);
  press(0);angles(0);
  prepare();fail_start=2;assert(ArmServo_Init()==HAL_ERROR);assert(started==0 && stopped==3);
