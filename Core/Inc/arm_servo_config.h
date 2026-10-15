@@ -35,7 +35,7 @@
 #define ARM_SERVO_1_MIN_PULSE_US         500U
 #define ARM_SERVO_1_MAX_PULSE_US         2500U
 #define ARM_SERVO_1_ZERO_PULSE_US        1500U
-#define ARM_SERVO_1_DIRECTION           1
+#define ARM_SERVO_1_DIRECTION           (-1)
 #define ARM_SERVO_1_MIN_ANGLE_DEG       (-80)
 #define ARM_SERVO_1_MAX_ANGLE_DEG        80
 
@@ -43,7 +43,7 @@
 #define ARM_SERVO_2_MIN_PULSE_US         500U
 #define ARM_SERVO_2_MAX_PULSE_US         2500U
 #define ARM_SERVO_2_ZERO_PULSE_US        1500U
-#define ARM_SERVO_2_DIRECTION          (-1)
+#define ARM_SERVO_2_DIRECTION            1
 #define ARM_SERVO_2_MIN_ANGLE_DEG       (-80)
 #define ARM_SERVO_2_MAX_ANGLE_DEG        80
 
