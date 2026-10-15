@@ -9,13 +9,16 @@
 #define ARM_SERVO_STEP_DEG              5  //每次转多少度
 #define ARM_SERVO_FRAME_US              20000U
 
-/* WK_UP local arm-only demonstration; aligned with ROS YAML defaults.
- * No SG90 movement, scheduler waits or CAN calls. */
+/* WK_UP dispenser sequence; serviced non-blocking from the RTOS task. */
 #define ARM_SERVO_WK_DEMO_ENABLE        1U
-#define ARM_SERVO_WK_PLACE_DEG          15
+#define ARM_SERVO_WK_PLACE_DEG          30
 #define ARM_SERVO_WK_HOME_DEG           0
 #define ARM_SERVO_WK_MOVE_MS            3000U
 #define ARM_SERVO_WK_HOLD_MS            1000U
+#define ARM_SERVO_WK_SERVO_ANGLE         0
+#define ARM_SERVO_WK_SERVO_RETURN_ANGLE  180
+#define ARM_SERVO_WK_SERVO_HOLD_MS       3000U
+#define ARM_SERVO_WK_SERVO_RETURN_MS     1000U
 
 /* Confirm your DS3230MG's 180/270-degree variant before powered testing.
  * Logical zero means the calibrated pulse below, not the shaft's endpoint.

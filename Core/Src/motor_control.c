@@ -52,11 +52,20 @@ static uint8_t collision_blocks(const float rpm[MOTOR_COUNT])
     chassis_velocity_t request, measured = {0};
     float feedback[MOTOR_COUNT];
     uint8_t fresh = 1U, moving = 0U;
+    uint8_t seen[MOTOR_COUNT];
+    uint32_t sample_tick[MOTOR_COUNT];
+    int32_t velocity[MOTOR_COUNT];
     uint32_t now = HAL_GetTick();
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    memcpy(seen, velocity_seen, sizeof(seen));
+    memcpy(sample_tick, velocity_tick, sizeof(sample_tick));
+    for (uint8_t i = 0U; i < MOTOR_COUNT; ++i) velocity[i] = motors[i].current_velocity;
+    if (primask == 0U) __enable_irq();
     for (uint8_t i = 0U; i < MOTOR_COUNT; ++i) {
         if (rpm[i] != 0.0f) moving = 1U;
-        if (!velocity_seen[i] || now - velocity_tick[i] > CHASSIS_FEEDBACK_FRESH_MS) fresh = 0U;
-        feedback[i] = (float)motors[i].current_velocity * 0.1f; /* wire = 0.1 RPM */
+        if (!seen[i] || now - sample_tick[i] > CHASSIS_FEEDBACK_FRESH_MS) fresh = 0U;
+        feedback[i] = (float)velocity[i] * 0.1f; /* wire = 0.1 RPM */
     }
     if (local_stop_pending || independent_stop() || (moving && !CHASSIS_KINEMATICS_READY)) return 1U;
     chassis_velocity_from_rpm(rpm, &request);
@@ -87,8 +96,8 @@ void motor_update_distance(const distance_sensor_sample_t *sample)
 
 void motor_safety_poll(void)
 {
-    uint32_t primask = __get_PRIMASK();
-    __disable_irq();
+    /* Called by the motor task, which owns request state. Keep the potentially
+     * expensive float/geometry test outside PRIMASK so TIM6 and CAN IRQs run. */
     uint8_t expired = HAL_GetTick() - request_tick > CHASSIS_COMMAND_TIMEOUT_MS;
     for (uint8_t i = 0U; i < MOTOR_COUNT; ++i)
         if (requested_rpm[i] != 0.0f && HAL_GetTick() - active_wheel_tick[i] > CHASSIS_COMMAND_TIMEOUT_MS)
@@ -98,7 +107,6 @@ void motor_safety_poll(void)
     } else if (local_stop_pending || (request_active && collision_blocks(requested_rpm))) {
         (void)collision_stop();
     }
-    if (primask == 0U) __enable_irq();
 }
 
 static uint8_t slot_to_speed(uint8_t idx, const motion_slot_t *slot, float *rpm, int64_t *target)
@@ -150,8 +158,6 @@ static HAL_StatusTypeDef submit_motion(uint8_t idx, int32_t value, uint8_t accel
 {
     if (idx >= MOTOR_COUNT && idx != 0xFFU) return HAL_ERROR;
     if (command == MOTOR_CMD_SET_POSITION && mode > 2U) return HAL_ERROR;
-    uint32_t primask = __get_PRIMASK();
-    __disable_irq();
     float candidate[MOTOR_COUNT];
     int64_t targets[MOTOR_COUNT] = {0};
     motion_slot_t slot = {.value=value, .tick=received_tick, .command=command, .mode=mode};
@@ -200,7 +206,6 @@ static HAL_StatusTypeDef submit_motion(uint8_t idx, int32_t value, uint8_t accel
     }
     if (status == HAL_OK && !sync) remember_request(candidate);
 done:
-    if (primask == 0U) __enable_irq();
     return status;
 }
 
@@ -385,25 +390,28 @@ uint8_t motor_process_next_command(Motor_Command_t *cmd, HAL_StatusTypeDef *resu
 {
     uint8_t processed;
     uint32_t primask;
-    if ((cmd == NULL) || (result == NULL)) { return 0U; }
+    if ((cmd == NULL) || (result == NULL)) return 0U;
+
     primask = __get_PRIMASK();
     __disable_irq();
-    /* A stop task cannot run between dequeue and application. */
     processed = motor_fetch_command(cmd, 0U);
     if ((processed == 0U) && (local_sync_start_pending != 0U)) {
         *cmd = local_sync_start;
         local_sync_start_pending = 0U;
         processed = 1U;
     }
+    if (primask == 0U) __enable_irq();
+
     if (processed != 0U) {
         if ((cmd->cmd == MOTOR_CMD_SET_VELOCITY || cmd->cmd == MOTOR_CMD_SET_POSITION ||
              cmd->cmd == MOTOR_CMD_SYNC_START) &&
             HAL_GetTick() - cmd->received_tick > CHASSIS_COMMAND_TIMEOUT_MS) {
             (void)motor_stop_all();
             *result = HAL_TIMEOUT;
-        } else *result = motor_apply_command(cmd);
+        } else {
+            *result = motor_apply_command(cmd);
+        }
     }
-    if (primask == 0U) { __enable_irq(); }
     return processed;
 }
 
@@ -453,8 +461,6 @@ void motor_set_speed_profile(uint8_t idx, uint16_t speed_rpm, uint8_t accel_leve
 
 HAL_StatusTypeDef motor_trigger_sync_motion(void)
 {
-    uint32_t primask = __get_PRIMASK();
-    __disable_irq();
     float rpm[MOTOR_COUNT];
     int64_t targets[MOTOR_COUNT] = {0};
     HAL_StatusTypeDef status = HAL_ERROR;
@@ -482,7 +488,6 @@ HAL_StatusTypeDef motor_trigger_sync_motion(void)
 reject:
     (void)collision_stop();
 done:
-    if (primask == 0U) __enable_irq();
     return status;
 }
 

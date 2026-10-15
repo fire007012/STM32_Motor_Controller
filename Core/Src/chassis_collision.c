@@ -54,8 +54,13 @@ uint8_t chassis_collision_check(const chassis_velocity_t *request,
                        measured->wz > CHASSIS_SPEED_EPSILON ||
                        measured->wz < -CHASSIS_SPEED_EPSILON);
     uint8_t result = 0U;
+    distance_sensor_sample_t snapshot[4];
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    memcpy(snapshot, ranges, sizeof(snapshot));
+    if (primask == 0U) __enable_irq();
     for (uint8_t i = 0U; i < 4U; ++i) {
-        distance_sensor_sample_t sample = ranges[i]; /* caller holds motor lock */
+        distance_sensor_sample_t sample = snapshot[i];
         float v = req[i] > obs[i] ? req[i] : obs[i];
         uint8_t mode = v > CHASSIS_SPEED_EPSILON ? 2U : turning ? 1U : 0U;
         if (mode == 0U || !sample.valid ||

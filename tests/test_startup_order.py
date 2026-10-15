@@ -26,6 +26,40 @@ class StartupOrder(unittest.TestCase):
         self.assertNotIn('PC2.', ioc)
         self.assertNotRegex(ioc, r'(?m)^Mcu\.Pin\d+=PC2$')
 
+    def test_arm_key_scan_is_outside_tim6_interrupt(self):
+        text=(ROOT/'Core/Src/main.c').read_text(encoding='utf-8')
+        task=text[text.index('void StartMotorControlTask(void *argument)\n{'):text.index('void StartStatusTask(void *argument)\n{')]
+        timer=text[text.index('void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)\n{'):text.index('void Error_Handler(void)\n{')]
+        self.assertIn('Servo_PollButtons();',task)
+        self.assertNotIn('Servo_PollButtons();',timer)
+        self.assertNotIn('ArmServo_PollButtons(',timer)
+        self.assertIn('motor_safety_poll();',task)
+
+    def test_collision_geometry_does_not_mask_tim6(self):
+        motor=(ROOT/'Core/Src/motor_control.c').read_text(encoding='utf-8')
+        safety=motor[motor.index('void motor_safety_poll(void)'):motor.index('static uint8_t slot_to_speed')]
+        submit=motor[motor.index('static HAL_StatusTypeDef submit_motion'):motor.index('void motor_control_init')]
+        self.assertIn('collision_blocks(',safety)
+        self.assertNotIn('__disable_irq()',safety)
+        self.assertIn('collision_blocks(',submit)
+        self.assertNotIn('__disable_irq()',submit)
+
+    def test_wkup_dispenser_sequence_is_ordered_and_nonblocking(self):
+        config=(ROOT/'Core/Inc/arm_servo_config.h').read_text(encoding='utf-8')
+        source=(ROOT/'Core/Src/main.c').read_text(encoding='utf-8')
+        self.assertRegex(config,r'ARM_SERVO_WK_PLACE_DEG\s+30')
+        self.assertRegex(config,r'ARM_SERVO_WK_HOLD_MS\s+1000U')
+        self.assertRegex(config,r'ARM_SERVO_WK_SERVO_ANGLE\s+0')
+        self.assertRegex(config,r'ARM_SERVO_WK_SERVO_RETURN_ANGLE\s+180')
+        self.assertRegex(config,r'ARM_SERVO_WK_SERVO_HOLD_MS\s+3000U')
+        self.assertRegex(config,r'ARM_SERVO_WK_SERVO_RETURN_MS\s+1000U')
+        body=source[source.index('static void WkupDemo_Service(void)\n{'):source.index('/* USER CODE END 4 */')]
+        steps=['case WKUP_DEMO_ARM_FORWARD:','case WKUP_DEMO_SERVO_OPEN:','case WKUP_DEMO_SERVO_CLOSE:','case WKUP_DEMO_ARM_RETURN:','ArmServo_DemoEnd()']
+        positions=[body.index(step) for step in steps[:-1]]+[body.rindex(steps[-1])]
+        self.assertEqual(positions,sorted(positions))
+        self.assertNotIn('HAL_Delay(',body)
+        self.assertNotIn('osDelay(',body)
+
     def test_hal_delay_sensor_init_precedes_rtos_objects(self):
         main = main_body()
         self.assertEqual(main.count('distance_sensor_init()'), 1)

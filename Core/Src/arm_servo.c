@@ -26,8 +26,8 @@ static arm_key_t keys[2];
 static uint8_t chord_blocked;
 static volatile uint8_t remote_owned;
 static arm_key_t demo_key;
-static uint8_t demo_initialized, demo_running;
-static uint32_t demo_start_ms;
+static uint8_t demo_initialized;
+static volatile uint8_t demo_running;
 static const uint32_t pwm_channels[ARM_SERVO_CHANNEL_COUNT] = {
     TIM_CHANNEL_1, TIM_CHANNEL_2, TIM_CHANNEL_3, TIM_CHANNEL_4
 };
@@ -231,58 +231,70 @@ static uint8_t key_pressed(arm_key_t *key, uint8_t pressed, uint32_t now)
     return 1U;
 }
 
-void ArmServo_PollDemo(uint8_t wk_pressed)
+uint8_t ArmServo_PollDemo(uint8_t wk_pressed)
 {
 #if ARM_SERVO_WK_DEMO_ENABLE
     uint8_t pressed;
-    uint32_t now, primask;
-    int16_t goal;
-    if (!arm_ready) return;
-    now = HAL_GetTick();
+    uint32_t primask;
+    if (!arm_ready) return 0U;
     if (!demo_initialized) {
         memset(&demo_key, 0, sizeof(demo_key));
         demo_key.stable = !!wk_pressed;
         demo_key.armed = !wk_pressed;
+        demo_key.since_ms = HAL_GetTick();
         demo_initialized = 1U;
-        return;
+        return 0U;
     }
-    pressed = key_pressed(&demo_key, !!wk_pressed, now);
+    pressed = key_pressed(&demo_key, !!wk_pressed, HAL_GetTick());
+    if (!pressed) return 0U;
     primask = __get_PRIMASK();
     __disable_irq();
-    if (remote_owned) {
-        demo_running = 0U; /* Hold the pose selected by remote control. */
-        if (!primask) __enable_irq();
-        return;
-    }
-    if (pressed && !demo_running) {
-        goal = ARM_SERVO_WK_PLACE_DEG;
-        demo_running = 1U;
-        demo_start_ms = now;
-    } else if (demo_running && (uint32_t)(now - demo_start_ms) >=
-               ARM_SERVO_WK_MOVE_MS + ARM_SERVO_WK_HOLD_MS) {
-        goal = ARM_SERVO_WK_HOME_DEG;
-        demo_running = 0U;
-    } else {
-        if (!primask) __enable_irq();
-        return;
-    }
-    /* Reject the whole paired pose before writing either channel. */
-    for (uint8_t i = 0U; i < ARM_SERVO_ACTIVE_COUNT; ++i) {
-        if (goal < calibration[i].min_angle || goal > calibration[i].max_angle) {
-            demo_running = 0U;
-            if (!primask) __enable_irq();
-            return;
-        }
-    }
-    for (uint8_t i = 0U; i < ARM_SERVO_ACTIVE_COUNT; ++i) {
-        target_deg10[i] = goal * 10;
-        __HAL_TIM_SET_COMPARE(&arm_timer, pwm_channels[i],
-                             (uint32_t)angle_to_us10(&calibration[i], goal * 10));
-    }
+    uint8_t accepted = (!remote_owned && !demo_running) ? 1U : 0U;
     if (!primask) __enable_irq();
+    return accepted;
 #else
     (void)wk_pressed;
+    return 0U;
 #endif
+}
+
+uint8_t ArmServo_DemoSetAngle(int16_t angle_deg)
+{
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    if (!arm_ready || remote_owned) {
+        if (!primask) __enable_irq();
+        return 0U;
+    }
+    for (uint8_t i = 0U; i < ARM_SERVO_ACTIVE_COUNT; ++i) {
+        if (angle_deg < calibration[i].min_angle || angle_deg > calibration[i].max_angle) {
+            if (!primask) __enable_irq();
+            return 0U;
+        }
+    }
+    demo_running = 1U;
+    for (uint8_t i = 0U; i < ARM_SERVO_ACTIVE_COUNT; ++i) {
+        target_deg10[i] = (int16_t)(angle_deg * 10);
+        __HAL_TIM_SET_COMPARE(&arm_timer, pwm_channels[i],
+            (uint32_t)angle_to_us10(&calibration[i], (int16_t)(angle_deg * 10)));
+    }
+    if (!primask) __enable_irq();
+    return 1U;
+}
+
+uint8_t ArmServo_DemoEnd(void)
+{
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    uint8_t ended = !remote_owned;
+    if (ended) demo_running = 0U;
+    if (!primask) __enable_irq();
+    return ended;
+}
+
+uint8_t ArmServo_DemoActive(void)
+{
+    return (demo_running && !remote_owned) ? 1U : 0U;
 }
 
 void ArmServo_PollButtons(uint8_t k0_pressed, uint8_t k1_pressed)
