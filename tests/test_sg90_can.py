@@ -54,23 +54,23 @@ static int HAL_TIM_PWM_Start(TIM_HandleTypeDef *t,uint32_t c){(void)t;(void)c;re
         checks = r"""
 static void sum(uint8_t d[8]){d[7]=0;for(int i=0;i<7;i++)d[7]+=d[i];}
 int main(void){
- assert(Servo_Init()==HAL_OK);assert(htim3.pulse==250 && htim4.pulse==250);
+ assert(Servo_Init()==HAL_OK);assert(htim3.pulse==250 && htim4.pulse==55);
  /* Exercise the real KEY_TEST_ENABLE=0 debounce path and both outputs. */
  k0_down=1;for(unsigned i=0;i<25;i++){tick++;Servo_PollButtons();}
- assert(htim3.pulse==55 && htim4.pulse==55);
+ assert(htim3.pulse==55 && htim4.pulse==250);
  k0_down=0;for(unsigned i=0;i<25;i++){tick++;Servo_PollButtons();}
  k1_down=1;for(unsigned i=0;i<25;i++){tick++;Servo_PollButtons();}
- assert(htim3.pulse==250 && htim4.pulse==250);
+ assert(htim3.pulse==250 && htim4.pulse==55);
  k1_down=0;for(unsigned i=0;i<25;i++){tick++;Servo_PollButtons();}
  uint8_t d[8]={0x22,1,0,0,0,0,42,0};sum(d);
- assert(Servo_HandlePositionCanCommand(d)==0);assert(htim3.pulse==55 && htim4.pulse==250);
- assert(servo_remote_owned);Servo_SetLocalBoth(180);assert(htim3.pulse==250 && htim4.pulse==250);
- Servo_ReleaseLocalControl();Servo_SetLocalBoth(180);assert(htim3.pulse==250 && htim4.pulse==250);
- d[1]=2;sum(d);assert(Servo_HandlePositionCanCommand(d)==0);assert(htim4.pulse==55);
+ assert(Servo_HandlePositionCanCommand(d)==0);assert(htim3.pulse==55 && htim4.pulse==55);
+ assert(servo_remote_owned);Servo_SetLocalBoth(180);assert(htim3.pulse==250 && htim4.pulse==55);
+ Servo_ReleaseLocalControl();Servo_SetLocalBoth(180);assert(htim3.pulse==250 && htim4.pulse==55);
+ d[1]=2;sum(d);assert(Servo_HandlePositionCanCommand(d)==0);assert(htim4.pulse==250);
  d[1]=3;d[2]=90;d[3]=181;sum(d);assert(Servo_HandlePositionCanCommand(d)==2);
- assert(htim3.pulse==250 && htim4.pulse==55);
+ assert(htim3.pulse==250 && htim4.pulse==250);
  d[3]=180;sum(d);assert(Servo_HandlePositionCanCommand(d)==0);
- assert(htim3.pulse==153 && htim4.pulse==250);
+ assert(htim3.pulse==153 && htim4.pulse==55);
  d[7]++;assert(Servo_HandlePositionCanCommand(d)==1);
  d[1]=4;sum(d);assert(Servo_HandlePositionCanCommand(d)==1);
  d[1]=0;sum(d);assert(Servo_HandlePositionCanCommand(d)==1);

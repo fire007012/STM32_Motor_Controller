@@ -255,10 +255,22 @@ static void Servo_SetAngle(TIM_HandleTypeDef *htim, uint32_t channel, int16_t an
   __HAL_TIM_SET_COMPARE(htim, channel, Servo_AngleToPulse(angle_deg));
 }
 
+/* Logical SG90 angle uses the left/PB0 convention. The right/PD14 servo is
+ * mounted mirrored, so reverse its pulse angle while preserving the same
+ * open=0 / closed=180 ROS and local-control convention. */
+static void Servo_SetLogicalAngle(uint8_t servo, int16_t angle_deg)
+{
+  if (servo == 0U) {
+    Servo_SetAngle(&htim3, TIM_CHANNEL_3, angle_deg);
+  } else {
+    Servo_SetAngle(&htim4, TIM_CHANNEL_3, (int16_t)(180 - angle_deg));
+  }
+}
+
 static void Servo_SetBoth(int16_t angle_deg)
 {
-  Servo_SetAngle(&htim3, TIM_CHANNEL_3, angle_deg);
-  Servo_SetAngle(&htim4, TIM_CHANNEL_3, angle_deg);
+  Servo_SetLogicalAngle(0U, angle_deg);
+  Servo_SetLogicalAngle(1U, angle_deg);
 }
 
 static HAL_StatusTypeDef Servo_Init(void)
@@ -304,8 +316,8 @@ uint8_t Servo_HandlePositionCanCommand(const uint8_t data[8])
       ((data[1] & 2U) && data[3] > 180U)) return 2U;
   servo_return_pending = 0U;
   servo_remote_owned = 1U;
-  if (data[1] & 1U) Servo_SetAngle(&htim3, TIM_CHANNEL_3, data[2]);
-  if (data[1] & 2U) Servo_SetAngle(&htim4, TIM_CHANNEL_3, data[3]);
+  if (data[1] & 1U) Servo_SetLogicalAngle(0U, data[2]);
+  if (data[1] & 2U) Servo_SetLogicalAngle(1U, data[3]);
   return 0U;
 }
 
@@ -324,12 +336,12 @@ void Servo_HandleCanCommand(const uint8_t data[8])
 
   if ((data[1] & 0x01U) != 0U)
   {
-    Servo_SetAngle(&htim3, TIM_CHANNEL_3, data[2]);
+    Servo_SetLogicalAngle(0U, data[2]);
   }
 
   if ((data[1] & 0x02U) != 0U)
   {
-    Servo_SetAngle(&htim4, TIM_CHANNEL_3, data[3]);
+    Servo_SetLogicalAngle(1U, data[3]);
   }
 
   hold_ms = (uint16_t)data[5] | ((uint16_t)data[6] << 8);
@@ -420,11 +432,11 @@ static void Servo_Service(void)
     servo_return_pending = 0U;
     if ((servo_return_mask & 0x01U) != 0U)
     {
-      Servo_SetAngle(&htim3, TIM_CHANNEL_3, servo_return_angle);
+      Servo_SetLogicalAngle(0U, servo_return_angle);
     }
     if ((servo_return_mask & 0x02U) != 0U)
     {
-      Servo_SetAngle(&htim4, TIM_CHANNEL_3, servo_return_angle);
+      Servo_SetLogicalAngle(1U, servo_return_angle);
     }
   }
 }
@@ -1280,7 +1292,7 @@ static void WkupDemo_Service(void)
       break;
 
     case WKUP_DEMO_ARM_FORWARD:
-      if ((uint32_t)(now - wkup_demo_stage_tick) >= ARM_SERVO_WK_MOVE_MS + ARM_SERVO_WK_HOLD_MS) {
+      if ((uint32_t)(now - wkup_demo_stage_tick) >= ARM_SERVO_WK_HOLD_MS) {
         if (Servo_DemoSetBoth(ARM_SERVO_WK_SERVO_ANGLE)) { /* open: 0 degrees */
           wkup_demo_stage_tick = now;
           wkup_demo_state = WKUP_DEMO_SERVO_OPEN;
