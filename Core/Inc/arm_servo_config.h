@@ -3,7 +3,7 @@
 
 /* K0/K1 selection: 1=DS3230MG, 0=SG90. Both PWM and CAN drivers stay
  * initialized in either mode. Remote arm ownership blocks local arm keys. */
-#define ARM_SERVO_KEY_TEST_ENABLE       1U //测试sg90 0为sg90
+#define ARM_SERVO_KEY_TEST_ENABLE       0U //测试sg90 0为sg90
 #define ARM_SERVO_CHANNEL_COUNT         4U
 #define ARM_SERVO_ACTIVE_COUNT          3U
 #define ARM_SERVO_STEP_DEG              5  //每次转多少度
@@ -11,7 +11,7 @@
 
 /* WK_UP dispenser sequence; serviced non-blocking from the RTOS task. */
 #define ARM_SERVO_WK_DEMO_ENABLE        1U
-#define ARM_SERVO_WK_PLACE_DEG         (-30)
+#define ARM_SERVO_WK_PLACE_DEG          30
 #define ARM_SERVO_WK_HOME_DEG           0
 #define ARM_SERVO_WK_MOVE_MS            3000U
 #define ARM_SERVO_WK_HOLD_MS            1000U
@@ -27,11 +27,9 @@
  * The +/-80 limits are software bounds, NOT verified arm clearances. */
 /* CH1 / PC6: RIGHT arm, replaces Y42 ID5. Desired forward is CCW.
  * CH2 / PC7: LEFT arm, replaces Y42 ID6. Desired forward is CW.
- * Physical forward is negative logical angle on both axes. Directions below
- * are pulse signs, not universal CW/CCW guarantees; see the board test.
- * Mapping restored before commit a5c3e4a: PC6 increases pulse, PC7 decreases
- * pulse. Physical test shows forward is negative logical angle: K1 and WK_UP
- * decrease angle; K0 increases it. ROS forward targets must also be negative. */
+ * Latest user bench test: logical positive angle is physical forward on both
+ * axes. K1/WK_UP increase angle; K0 decreases it. Keep per-servo pulse signs
+ * below calibrated independently; do not flip them with the key mapping. */
 #define ARM_SERVO_1_TRAVEL_DEG           180U
 #define ARM_SERVO_1_MIN_PULSE_US         500U
 #define ARM_SERVO_1_MAX_PULSE_US         2500U

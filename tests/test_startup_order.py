@@ -44,10 +44,18 @@ class StartupOrder(unittest.TestCase):
         self.assertIn('collision_blocks(',submit)
         self.assertNotIn('__disable_irq()',submit)
 
+    def test_wkup_claims_local_sg90_control_before_starting_sequence(self):
+        text=(ROOT/'Core/Src/main.c').read_text(encoding='utf-8')
+        body=text[text.index('static uint8_t Servo_DemoClaimLocal(void)\n{'):text.index('static uint8_t Servo_DemoSetBoth(int16_t angle_deg)\n{')]
+        self.assertIn('servo_remote_owned = 0U;',body)
+        self.assertIn('servo_return_pending = 0U;',body)
+        wkup=text[text.index('static void WkupDemo_Service(void)\n{'):text.index('/* USER CODE END 4 */')]
+        self.assertIn('Servo_DemoClaimLocal() && ArmServo_DemoSetAngle',wkup)
+
     def test_wkup_dispenser_sequence_is_ordered_and_nonblocking(self):
         config=(ROOT/'Core/Inc/arm_servo_config.h').read_text(encoding='utf-8')
         source=(ROOT/'Core/Src/main.c').read_text(encoding='utf-8')
-        self.assertRegex(config,r'ARM_SERVO_WK_PLACE_DEG\s+\(-30\)')
+        self.assertRegex(config,r'ARM_SERVO_WK_PLACE_DEG\s+30')
         self.assertRegex(config,r'ARM_SERVO_WK_HOLD_MS\s+1000U')
         self.assertRegex(config,r'ARM_SERVO_WK_SERVO_ANGLE\s+0')
         self.assertRegex(config,r'ARM_SERVO_WK_SERVO_RETURN_ANGLE\s+180')
