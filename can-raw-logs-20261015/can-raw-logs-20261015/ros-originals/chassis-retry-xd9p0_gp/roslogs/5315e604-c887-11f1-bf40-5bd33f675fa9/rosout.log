@@ -1,0 +1,5 @@
+
+
+1792061896.967393559  Node Startup
+1792061897.261276106 WARN /can_interface_node [can_motor_interface/src/can_interface_node.cpp:345(CanInterfaceNode::commandTimerCallback)] [topics: /rosout, /motor_state, /motor_status_flags, /emergency_stop, /robot_state, /robot_display, /stop_all, /chassis_lock, /fixed_route/hold, /move_base/cancel, /can_rx, /motor_link_ready] Waiting for /motor_velocity_cmd; no speed frames sent. Start planner + cmd_vel_mux or the custom-protocol keyboard test.
+1792061902.280554121 WARN /can_interface_node [can_motor_interface/src/can_interface_node.cpp:345(CanInterfaceNode::commandTimerCallback)] [topics: /rosout, /motor_state, /motor_status_flags, /emergency_stop, /robot_state, /robot_display, /stop_all, /chassis_lock, /fixed_route/hold, /move_base/cancel, /can_rx, /motor_link_ready] Waiting for /motor_velocity_cmd; no speed frames sent. Start planner + cmd_vel_mux or the custom-protocol keyboard test.

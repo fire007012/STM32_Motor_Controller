@@ -12,12 +12,14 @@
 #include "chassis_collision.h"
 #include <math.h>
 
-CAN_HandleTypeDef hcan1 = {0U}, hcan2 = {1U};
+static CAN_TypeDef can_registers[2];
+CAN_HandleTypeDef hcan1 = {0U, &can_registers[0]}, hcan2 = {1U, &can_registers[1]};
 TIM_HandleTypeDef htim6;
 uint32_t test_primask;
 static uint32_t tick;
 static unsigned free_mailboxes[2];
 static unsigned fail_next[2];
+static unsigned busy_next[2];
 static unsigned aborted[2];
 static CAN_TxFrame_t sent[2][512];
 static unsigned sent_count[2];
@@ -42,12 +44,14 @@ HAL_StatusTypeDef HAL_CAN_AddTxMessage(CAN_HandleTypeDef *bus, const CAN_TxHeade
     unsigned i = bus->index;
     assert(test_primask == 1U);
     if (fail_next[i] != 0U) { fail_next[i]--; return HAL_ERROR; }
+    if (busy_next[i] != 0U) { busy_next[i]--; return HAL_BUSY; }
     assert(free_mailboxes[i] != 0U);
     assert(sent_count[i] < 512U);
     free_mailboxes[i]--;
     sent[i][sent_count[i]].header = *header;
     memcpy(sent[i][sent_count[i]++].data, data, 8U);
     *mailbox = 1U << (2U - free_mailboxes[i]);
+    bus->Instance->TSR |= CAN_TSR_TXOK0 << (8U * (2U - free_mailboxes[i]));
     return HAL_OK;
 }
 HAL_StatusTypeDef HAL_CAN_AbortTxRequest(CAN_HandleTypeDef *bus, uint32_t mailboxes)
@@ -68,7 +72,7 @@ HAL_StatusTypeDef HAL_CAN_GetRxMessage(CAN_HandleTypeDef *bus, uint32_t fifo,
     memcpy(data, rx_data[i][head], 8U);
     return HAL_OK;
 }
-void HAL_CAN_IRQHandler(CAN_HandleTypeDef *bus) { (void)bus; }
+void HAL_CAN_IRQHandler(CAN_HandleTypeDef *bus) { bus->Instance->ESR &= ~0x70U; }
 void HAL_TIM_IRQHandler(TIM_HandleTypeDef *timer) { (void)timer; }
 static unsigned arm_servo_count;
 uint8_t ArmServo_HandleCanCommand(const uint8_t data[8]) { (void)data; arm_servo_count++; return 0U; }
@@ -117,7 +121,9 @@ static void reset(void)
     test_primask = tick = 0U;
     memset(sent_count, 0, sizeof(sent_count));
     memset(fail_next, 0, sizeof(fail_next));
+    memset(busy_next, 0, sizeof(busy_next));
     memset(aborted, 0, sizeof(aborted));
+    memset(can_registers, 0, sizeof(can_registers));
     memset(rx_head, 0, sizeof(rx_head));
     memset(rx_tail, 0, sizeof(rx_tail));
     memset(motors, 0, sizeof(motors));
@@ -133,7 +139,7 @@ static void reset(void)
 static void drain(void)
 {
     unsigned i;
-    for (i = 0U; i < 32U; i++) {
+    for (i = 0U; i < 256U; i++) {
         free_mailboxes[0] = free_mailboxes[1] = 3U;
         can_transport_service();
         assert(test_primask == 0U);
@@ -185,6 +191,92 @@ static void test_startup_and_lengths(void)
     expect_frame(1, 1, 0, (uint8_t[]){0xFF, 0x66, 0x6B}, 3);
     expect_frame(1, 2, 0x100, (uint8_t[]){0x3A, 0x6B}, 2);
     puts("PASS startup enables only four chassis motors; exact short-command DLC");
+}
+
+static void test_ros_bus_fault_backoff(void)
+{
+    CAN_TxHeaderTypeDef header = {.StdId = 0x101U, .DLC = 8U};
+    const uint8_t data[8] = {1U};
+    unsigned rejected = 0U;
+    reset();
+    /* Reproduce continuous telemetry with no ACK: every requested TX leaves
+     * its mailbox without TXOK, while producers still run every 20 ms. */
+    for (tick = 0U; tick < 1000U; tick++) {
+        free_mailboxes[0] = free_mailboxes[1] = 3U;
+        can_registers[0].TSR = 0U;
+        if ((tick % 20U) == 0U) {
+            if (can_transport_send(&hcan1, &header, data) == HAL_BUSY) rejected++;
+            assert(can_transport_send(&hcan2, &header, data) == HAL_OK);
+        }
+        can_transport_service();
+    }
+    unsigned failed_attempts = sent_count[0];
+    assert(failed_attempts > 0U && failed_attempts <= 10U && rejected > 0U);
+    assert(can_transport_get_failure_count(&hcan1) == failed_attempts);
+    assert(sent_count[1] == 50U); /* A broken ROS link cannot throttle CAN2. */
+    tick += CAN_ROS_TX_BACKOFF_MS;
+    assert(can_transport_send(&hcan1, &header, data) == HAL_OK);
+    drain(); /* Now TXOK is set by HAL; normal traffic resumes. */
+    assert(sent_count[0] > failed_attempts);
+    unsigned recovered = sent_count[0];
+    for (unsigned i = 0U; i < 50U; i++) {
+        assert(can_transport_send(&hcan1, &header, data) == HAL_OK);
+        drain();
+    }
+    assert(sent_count[0] == recovered + 50U);
+    assert(can_transport_get_failure_count(&hcan1) == failed_attempts);
+
+    /* Even single-shot TX can get stuck before it reaches the wire. Bound
+     * that wait, cancel stale queued data and preserve the caller's IRQ mask. */
+    reset();
+    tick = UINT32_MAX - 10U;
+    assert(can_transport_send(&hcan1, &header, data) == HAL_OK);
+    assert(can_transport_send(&hcan1, &header, data) == HAL_OK);
+    free_mailboxes[0] = 3U;
+    can_transport_service();
+    assert(sent_count[0] == 1U);
+    tick += CAN_ROS_TX_TIMEOUT_MS - 1U;
+    can_transport_service();
+    assert(aborted[0] == 0U && sent_count[0] == 1U);
+    tick++;
+    test_primask = 1U;
+    can_transport_service();
+    assert(test_primask == 1U && aborted[0] == 1U);
+    test_primask = 0U;
+    assert(can_transport_get_failure_count(&hcan1) == 1U);
+    tick += CAN_ROS_TX_BACKOFF_MS - 1U;
+    assert(can_transport_send(&hcan1, &header, data) == HAL_BUSY);
+    tick++;
+    drain();
+    assert(sent_count[0] == 1U); /* Canceled stale traffic is never replayed. */
+    assert(can_transport_send(&hcan1, &header, data) == HAL_OK);
+    drain();
+    assert(sent_count[0] == 2U);
+
+    reset();
+    fail_next[0] = 1U;
+    free_mailboxes[0] = 3U;
+    assert(can_transport_send(&hcan1, &header, data) == HAL_OK);
+    for (unsigned i = 0U; i < 100U; i++) can_transport_service();
+    assert(sent_count[0] == 0U && can_transport_get_failure_count(&hcan1) == 1U);
+    tick += CAN_ROS_TX_BACKOFF_MS;
+    drain();
+    assert(sent_count[0] == 1U); /* HAL submission failure is retried after backoff. */
+
+    reset();
+    assert(can_transport_send(&hcan1, &header, data) == HAL_OK);
+    header.StdId = 0x102U;
+    assert(can_transport_send(&hcan1, &header, data) == HAL_OK);
+    free_mailboxes[0] = 3U;
+    can_transport_service();
+    can_registers[0].TSR = CAN_TSR_ALST0;
+    free_mailboxes[0] = 3U;
+    can_transport_service();
+    assert(sent_count[0] == 2U && sent[0][1].header.StdId == 0x101U);
+    assert(can_transport_get_failure_count(&hcan1) == 0U);
+    drain();
+    assert(sent_count[0] == 3U && sent[0][2].header.StdId == 0x102U);
+    puts("PASS ROS no-ACK attempt bound, CAN2 independence, recovery, stuck-mailbox abort, tick wrap and HAL backoff");
 }
 
 static void test_x_motion_encoding(void)
@@ -418,6 +510,7 @@ static void test_polling_and_faults(void)
         if (functions[i]==0x35U) {
             reply(addresses[i],(uint8_t[]){0x35,1,3,0xE8,0x6B},5);
             assert(motors[addresses[i]-1U].current_velocity == -1000);
+            assert(zdt_feedback_diagnostics[addresses[i]-1U].speed_updates == 1U);
         } else if (functions[i]==0x36U) {
             reply(addresses[i],(uint8_t[]){0x36,0,0,0,0x0E,0x10,0x6B},7);
             assert(motors[0].position_feedback == 3600);
@@ -425,8 +518,10 @@ static void test_polling_and_faults(void)
             reply(2,(uint8_t[]){0x3A,0x83,0x6B},3);
             reply(1,(uint8_t[]){0x3A,0x83,0},3);
             assert(zdt_can_driver_is_busy());
+            assert(zdt_feedback_diagnostics[0].status_updates == 0U);
             reply(1,(uint8_t[]){0x3A,0x83,0x6B},3);
             assert(motors[0].status_word==0x83 && !motors[0].fault_flag);
+            assert(zdt_feedback_diagnostics[0].status_updates == 1U);
             assert(!zdt_status_take_estop_event(&event));
         } else {
             reply(2,(uint8_t[]){0x3A,0x89,0x6B},3);
@@ -832,8 +927,153 @@ static void test_measured_body_speed_and_no_raw_bypass(void)
     puts("PASS 0.1 RPM feedback conversion, freshness, measured braking speed and raw motion bypass rejection");
 }
 
+static void test_reply_priority_and_recovery(void)
+{
+    CAN_TxHeaderTypeDef telemetry = {.StdId = 0x101U, .DLC = 8U};
+    CAN_TxHeaderTypeDef ack = {.StdId = 0x102U, .DLC = 8U};
+    uint8_t data[8] = {0x12U, 0x34U, 9U};
+    CAN_BusDiagnostics_t diag;
+    reset();
+    for (unsigned i = 0U; i < CAN_TX_QUEUE_LENGTH; i++)
+        assert(can_transport_send(&hcan1, &telemetry, data) == HAL_OK);
+    assert(can_transport_send_reply(&hcan1, &ack, data) == HAL_OK);
+    drain();
+    assert(sent_count[0] == CAN_TX_QUEUE_LENGTH + 1U);
+    assert(sent[0][0].header.StdId == 0x102U);
+    assert(memcmp(sent[0][0].data, data, 8U) == 0);
+    for (unsigned i = 1U; i < sent_count[0]; i++) assert(sent[0][i].header.StdId == 0x101U);
+
+    reset();
+    assert(can_transport_send_reply(&hcan1, &ack, data) == HAL_OK);
+    free_mailboxes[0] = 3U;
+    can_transport_service();
+    free_mailboxes[0] = 3U;
+    can_registers[0].TSR = CAN_TSR_TERR0;
+    can_transport_service();
+    data[1]++;
+    assert(can_transport_send_reply(&hcan1, &ack, data) == HAL_OK); /* during backoff */
+    tick = CAN_ROS_TX_BACKOFF_MS - 1U;
+    can_transport_service();
+    assert(sent_count[0] == 1U);
+    tick++;
+    drain();
+    assert(sent_count[0] == 3U);
+    assert(sent[0][1].data[1] == 0x34U && sent[0][2].data[1] == 0x35U);
+    can_transport_get_diagnostics(&hcan1, &diag);
+    assert(diag.reply_pending == 0U && diag.reply_retries == 1U && diag.tx_ok == 2U);
+
+    /* A failed reply is retried for a finite lifetime, not forever. */
+    reset();
+    assert(can_transport_send_reply(&hcan1, &ack, data) == HAL_OK);
+    for (tick = 0U; tick < 1000U; tick++) {
+        free_mailboxes[0] = 3U;
+        can_registers[0].TSR = CAN_TSR_TERR0;
+        can_transport_service();
+    }
+    can_transport_get_diagnostics(&hcan1, &diag);
+    assert(sent_count[0] == 5U && diag.reply_expired == 1U && diag.reply_pending == 0U);
+
+    /* Stuck hardware cancellation preserves replies, then recovery retries. */
+    reset();
+    assert(can_transport_send_reply(&hcan1, &ack, data) == HAL_OK);
+    free_mailboxes[0] = 3U;
+    can_transport_service();
+    tick = CAN_ROS_TX_TIMEOUT_MS;
+    can_transport_service();
+    assert(aborted[0] == 1U && sent_count[0] == 1U);
+    can_transport_get_diagnostics(&hcan1, &diag);
+    assert(diag.reply_pending == 1U && diag.tx_timeouts == 1U);
+    tick += CAN_ROS_TX_BACKOFF_MS;
+    drain();
+    assert(sent_count[0] == 2U);
+
+    reset();
+    for (unsigned i = 0U; i < CAN_REPLY_QUEUE_LENGTH; i++)
+        assert(can_transport_send_reply(&hcan1, &ack, data) == HAL_OK);
+    assert(can_transport_send_reply(&hcan1, &ack, data) == HAL_BUSY);
+    can_transport_get_diagnostics(&hcan1, &diag);
+    assert(diag.reply_overflow == 1U && diag.reply_pending == CAN_REPLY_QUEUE_LENGTH);
+    can_transport_cancel(&hcan1);
+    drain();
+    assert(sent_count[0] == 0U);
+
+    reset();
+    tick = UINT32_MAX - 99U;
+    free_mailboxes[0] = 0U;
+    assert(can_transport_send_reply(&hcan1, &ack, data) == HAL_OK);
+    tick += CAN_REPLY_LIFETIME_MS;
+    drain();
+    can_transport_get_diagnostics(&hcan1, &diag);
+    assert(sent_count[0] == 0U && diag.reply_expired == 1U);
+
+    /* Exercise the real queue-rejection ACK with telemetry already full. */
+    reset();
+    Motor_Command_t command = {.cmd = MOTOR_CMD_HEARTBEAT};
+    for (unsigned i = 0U; i < MOTOR_CMD_QUEUE_LENGTH; i++)
+        assert(motor_enqueue_command_from_isr(&command) == 1U);
+    for (unsigned i = 0U; i < CAN_TX_QUEUE_LENGTH; i++)
+        assert(can_transport_send(&hcan1, &telemetry, data) == HAL_OK);
+    CAN_RxHeaderTypeDef rx = {.StdId = 0x100U, .DLC = 8U};
+    CAN1_RxCallback(rx, (uint8_t[]){9U, 255U, 0U, 0U, 0U, 0U, 0U, 0U});
+    drain();
+    assert(sent[0][0].header.StdId == 0x102U && sent[0][0].data[3] == 1U);
+    puts("PASS independent reply capacity, priority, bounded error retry, timeout recovery, expiry and rejection ACK");
+}
+
+static void test_can_error_diagnostics(void)
+{
+    void CAN1_SCE_IRQHandler(void);
+    void CAN2_SCE_IRQHandler(void);
+    CAN_BusDiagnostics_t diag;
+    CAN_TxHeaderTypeDef ack = {.StdId = 0x102U, .DLC = 8U};
+    reset();
+    tick = 42U;
+    can_registers[0].MCR = 0x00010054U;
+    can_registers[0].BTR = 0x00180005U;
+    can_registers[0].ESR = 0x00800033U;
+    CAN1_SCE_IRQHandler();
+    can_transport_get_diagnostics(&hcan1, &diag);
+    assert(diag.last_error_esr == 0x00800033U && diag.last_error_tick == 42U);
+    assert(diag.esr == 0x00800003U && diag.error_events == 1U);
+    assert(diag.lec_events[3] == 1U && diag.error_passive_events == 1U && diag.error_warning_events == 1U);
+    assert(diag.mcr == 0x00010054U && diag.btr == 0x00180005U);
+    can_registers[1].ESR = 0x01000061U;
+    CAN2_SCE_IRQHandler();
+    can_transport_get_diagnostics(&hcan2, &diag);
+    assert(diag.last_error_esr == 0x01000061U && diag.error_events == 1U);
+    /* HAL software state still LISTENING: BOFF must suppress submissions. */
+    can_registers[0].ESR = CAN_ESR_BOFF;
+    assert(can_transport_send_reply(&hcan1, &ack, (uint8_t[8]){0}) == HAL_OK);
+    drain();
+    assert(sent_count[0] == 0U);
+    can_registers[0].ESR = 0U;
+    drain();
+    assert(sent_count[0] == 1U);
+    can_transport_get_diagnostics(&hcan1, &diag);
+    assert(diag.tx_ok == 1U && diag.last_error_esr == 0x00800033U);
+    CAN_RxHeaderTypeDef rx = {.StdId = 0x321U};
+    can_transport_record_rx(&hcan1, &rx);
+    can_transport_get_diagnostics(&hcan1, &diag);
+    assert(diag.rx_frames == 1U && diag.last_rx_id == 0x321U);
+    can_registers[0].RF0R = CAN_RF0R_FOVR0;
+    can_transport_capture_rx_overrun(&hcan1);
+    can_registers[0].RF0R = 0U;
+    can_transport_capture_rx_overrun(&hcan1);
+    can_transport_get_diagnostics(&hcan1, &diag);
+    assert(diag.rx_overruns == 1U);
+    puts("PASS per-controller ESR capture before HAL clears LEC, latched evidence and bus-off TX gating");
+}
+
+#include "can_latest_checks.inc"
+
 int main(void)
 {
+    test_latest_capacity_and_priority();
+    test_latest_in_flight_and_recovery();
+    test_latest_ring_and_callbacks();
+    test_reply_priority_and_recovery();
+    test_can_error_diagnostics();
+    test_ros_bus_fault_backoff();
     test_local_pwm_ack_routing();
     test_estop_when_command_queue_full();
     test_pending_survives_transport_full();

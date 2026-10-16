@@ -1,0 +1,86 @@
+[
+  {
+    "source": "/tmp/chassis-link-check-20261015/can.log",
+    "copy": "ros-originals/chassis-link-check-20261015/can.log",
+    "bytes": 19713,
+    "sha256": "6b728f2981620da5b11df5aa813fff2737ba0a43702f726d2628d0a46de20b58"
+  },
+  {
+    "source": "/tmp/chassis-link-check-20261015/log/e0588ec4-c87b-11f1-bf40-5bd33f675fa9/rosout.log",
+    "copy": "ros-originals/chassis-link-check-20261015/log/e0588ec4-c87b-11f1-bf40-5bd33f675fa9/rosout.log",
+    "bytes": 72666,
+    "sha256": "ca36f021c28bf58f88ad555449258983bfdded6f0be3e62e1148b3b2006cfcad"
+  },
+  {
+    "source": "/tmp/chassis-retry-xd9p0_gp/can.log",
+    "copy": "ros-originals/chassis-retry-xd9p0_gp/can.log",
+    "bytes": 1251,
+    "sha256": "18198f3e00eae66ab88880836a106e4d5197e317a455d1b52961e55ed6bbe5f6"
+  },
+  {
+    "source": "/tmp/chassis-retry-xd9p0_gp/motion-retry-7pwz1zhr/motion_can.log",
+    "copy": "ros-originals/chassis-retry-xd9p0_gp/motion-retry-7pwz1zhr/motion_can.log",
+    "bytes": 1969,
+    "sha256": "b432f688e4ba24dee39722b71c4e5f86c30e57f7f5ca19d58ba11fc153ed5306"
+  },
+  {
+    "source": "/tmp/chassis-retry-xd9p0_gp/motion-retry-7pwz1zhr/roslogs/24ce8566-c888-11f1-bf40-5bd33f675fa9/rosout.log",
+    "copy": "ros-originals/chassis-retry-xd9p0_gp/motion-retry-7pwz1zhr/roslogs/24ce8566-c888-11f1-bf40-5bd33f675fa9/rosout.log",
+    "bytes": 4374,
+    "sha256": "fdb073e4d00e0c09dbd09ef7b040b7295b1ab11d6c125879ebe6e5932afe112e"
+  },
+  {
+    "source": "/tmp/chassis-retry-xd9p0_gp/motion-retry-h7xmsd1y/motion_can.log",
+    "copy": "ros-originals/chassis-retry-xd9p0_gp/motion-retry-h7xmsd1y/motion_can.log",
+    "bytes": 1385,
+    "sha256": "b989703079b3c6573c0eb8f91e2b6b89dd0e0f713bf6a6c830695511acf6dac9"
+  },
+  {
+    "source": "/tmp/chassis-retry-xd9p0_gp/motion-retry-h7xmsd1y/roslogs/b3c0f826-c888-11f1-bf40-5bd33f675fa9/rosout.log",
+    "copy": "ros-originals/chassis-retry-xd9p0_gp/motion-retry-h7xmsd1y/roslogs/b3c0f826-c888-11f1-bf40-5bd33f675fa9/rosout.log",
+    "bytes": 1265,
+    "sha256": "199388036f15b51db37b52a4154b50fb25ddb3f41f98093d82e27dea22631ff9"
+  },
+  {
+    "source": "/tmp/chassis-retry-xd9p0_gp/motion_can.log",
+    "copy": "ros-originals/chassis-retry-xd9p0_gp/motion_can.log",
+    "bytes": 1969,
+    "sha256": "212aba2f4bbb1ab677baad392e30c59e1aace691fa38bd3d4f97f8640b009fab"
+  },
+  {
+    "source": "/tmp/chassis-retry-xd9p0_gp/motion_roslogs/9897efe2-c887-11f1-bf40-5bd33f675fa9/rosout.log",
+    "copy": "ros-originals/chassis-retry-xd9p0_gp/motion_roslogs/9897efe2-c887-11f1-bf40-5bd33f675fa9/rosout.log",
+    "bytes": 4374,
+    "sha256": "de0a79e8df95d6fbef5c36fddedb8cece9c0122475c68f00c7d64fbf5b3c1bab"
+  },
+  {
+    "source": "/tmp/chassis-retry-xd9p0_gp/roslogs/0904c738-c887-11f1-bf40-5bd33f675fa9/rosout.log",
+    "copy": "ros-originals/chassis-retry-xd9p0_gp/roslogs/0904c738-c887-11f1-bf40-5bd33f675fa9/rosout.log",
+    "bytes": 1615,
+    "sha256": "c22bc903708f1a171ffb92eee55c12f806e921c8f2448cde67cadd69ac3bae1a"
+  },
+  {
+    "source": "/tmp/chassis-retry-xd9p0_gp/roslogs/5315e604-c887-11f1-bf40-5bd33f675fa9/rosout.log",
+    "copy": "ros-originals/chassis-retry-xd9p0_gp/roslogs/5315e604-c887-11f1-bf40-5bd33f675fa9/rosout.log",
+    "bytes": 941,
+    "sha256": "62848c6dd062d43808bb573ef026c133f44cac3a113b5fdeef76bf79ad50da84"
+  },
+  {
+    "source": "/tmp/chassis-low-speed-90br6taa/can.log",
+    "copy": "ros-originals/chassis-low-speed-90br6taa/can.log",
+    "bytes": 8423,
+    "sha256": "f3124826f1b92543f700a0876b63bdc41f7f7f4e5e5e38b4246f174abe4cbe74"
+  },
+  {
+    "source": "/tmp/chassis-low-speed-90br6taa/log/81afff1e-c87c-11f1-bf40-5bd33f675fa9/rosout.log",
+    "copy": "ros-originals/chassis-low-speed-90br6taa/log/81afff1e-c87c-11f1-bf40-5bd33f675fa9/rosout.log",
+    "bytes": 30273,
+    "sha256": "9e2587c8235c1adfdea9d433b8d6b9ce4e11ff911b55c106146b988a45227a9d"
+  },
+  {
+    "source": "/tmp/chassis_can_check_logs/107352ce-c886-11f1-bf40-5bd33f675fa9/rosout.log",
+    "copy": "ros-originals/chassis_can_check_logs/107352ce-c886-11f1-bf40-5bd33f675fa9/rosout.log",
+    "bytes": 41847,
+    "sha256": "54f0a2a746b05953cea2e113d76c8237d7f11cc46cd02642d24934c61e589563"
+  }
+]

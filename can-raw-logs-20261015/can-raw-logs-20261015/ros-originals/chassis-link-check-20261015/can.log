@@ -1,0 +1,181 @@
+[ERROR] [1792056981.459764578]: CAN TX failed on can0 ID=0x300: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
+[ERROR] [1792056981.459864660]: [can_interface] ESTOP latched: CAN2 feedback probe transmit failure
+[WARN] [1792056981.559392069]: [can_interface] duplicate ESTOP ignored: CAN2 feedback probe transmit failure
+[ERROR] [1792056982.560135996]: CAN TX failed on can0 ID=0x100: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
+[WARN] [1792056982.560196622]: [can_interface] duplicate ESTOP ignored: CAN2 feedback probe transmit failure
+[ERROR] [1792056983.659585558]: CAN TX failed on can0 ID=0x400: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
+[WARN] [1792056983.659639037]: [can_interface] duplicate ESTOP ignored: CAN2 feedback probe transmit failure
+[INFO] [1792056980.633101173]: STM32 custom protocol: device=can0 TX=0x100 RX=0x101 standard frames. This is NOT native Y42 passthrough; CAN bitrate must match STM32 CAN1.
+[INFO] [1792056980.639774812]: Logical wheel 0 -> STM32 index 1 / CAN2 address 2, sign=1
+[INFO] [1792056980.639806549]: Logical wheel 1 -> STM32 index 0 / CAN2 address 1, sign=1
+[INFO] [1792056980.639812897]: Logical wheel 2 -> STM32 index 3 / CAN2 address 4, sign=1
+[INFO] [1792056980.639816231]: Logical wheel 3 -> STM32 index 2 / CAN2 address 3, sign=1
+[INFO] [1792056980.659324458]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056980.659388513]: [can_interface] motion start state=IDLE
+[INFO] [1792056980.710051697]: First CAN TX queued on can0: ID=0x200 extended DLC=2. Use STM32 RX/feedback to confirm delivery.
+[INFO] [1792056981.459952967]: [can_interface] motion start state=ESTOP_LATCHED
+[INFO] [1792056981.558390887]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056981.658390333]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056981.758165445]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056981.858722588]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056981.958797264]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056982.058416536]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056982.158539977]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056982.258770780]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056982.358533959]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056982.458233702]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056982.558303796]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056982.658783675]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056982.758292886]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056982.858731453]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056982.958677962]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056983.058610669]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056983.158706642]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056983.258595797]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056983.358418367]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056983.458807918]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056983.558859963]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056983.658566103]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056983.758556729]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056983.859158364]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056983.958570664]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056984.058274830]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056984.158593938]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056984.258708389]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056984.358324032]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056984.458703623]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[IN[ERROR] [1792056984.759464679]: CAN TX failed on can0 ID=0x200: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
+[WARN] [1792056984.759518210]: [can_interface] duplicate ESTOP ignored: CAN2 feedback probe transmit failure
+[ERROR] [1792056985.759716424]: CAN TX failed on can0 ID=0x100: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
+[WARN] [1792056985.759792597]: [can_interface] duplicate ESTOP ignored: CAN2 feedback probe transmit failure
+[ERROR] [1792056986.859371678]: CAN TX failed on can0 ID=0x400: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
+[WARN] [1792056986.859402450]: [can_interface] duplicate ESTOP ignored: CAN2 feedback probe transmit failure
+[ERROR] [1792056987.859451535]: CAN TX failed on can0 ID=0x300: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
+[WARN] [1792056987.859628051]: [can_interface] duplicate ESTOP ignored: CAN2 feedback probe transmit failure
+FO] [1792056984.558183801]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056984.658601120]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056984.758797535]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056984.858255172]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056984.958308659]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056985.058739633]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056985.159425556]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056985.258949372]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056985.358389795]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056985.458432295]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056985.558646358]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056985.658421545]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056985.758700152]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056985.858767568]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056985.958573828]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056986.058310082]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056986.158722819]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056986.258471061]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056986.358442322]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056986.458334834]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056986.558783157]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056986.692933717]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056986.758218658]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056986.858713902]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056986.958615660]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056987.058480749]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056987.158404587]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056987.258405299]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056987.358156607]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056987.458289020]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056987.558466686]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056987.658478688]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056987.758578815]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056987.858881468]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056987.958251974]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056988.058143378]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056988.158618361]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056988.258088314]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056988.358212966]: SocketCAN bound on can0; binding/queued [ERROR] [1792056988.859816495]: CAN TX failed on can0 ID=0x200: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
+[WARN] [1792056988.859900206]: [can_interface] duplicate ESTOP ignored: CAN2 feedback probe transmit failure
+[ERROR] [1792056989.959384434]: CAN TX failed on can0 ID=0x400: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
+[WARN] [1792056989.959491711]: [can_interface] duplicate ESTOP ignored: CAN2 feedback probe transmit failure
+[ERROR] [1792056990.959613955]: CAN TX failed on can0 ID=0x300: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
+[WARN] [1792056990.959718200]: [can_interface] duplicate ESTOP ignored: CAN2 feedback probe transmit failure
+[ERROR] [1792056992.059422354]: CAN TX failed on can0 ID=0x200: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
+[WARN] [1792056992.059523318]: [can_interface] duplicate ESTOP ignored: CAN2 feedback probe transmit failure
+TX does not prove STM32 reception.
+[INFO] [1792056988.458431911]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056988.558701585]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056988.658511438]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056988.758640215]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056988.858244181]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056988.958407396]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056989.058387529]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056989.158408435]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056989.258418083]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056989.358658729]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056989.458516264]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056989.558579700]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056989.658225065]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056989.758568021]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056989.858778043]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056989.958342849]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056990.058246262]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056990.158990377]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056990.259105628]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056990.358317452]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056990.458625973]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056990.558587895]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056990.658512423]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056990.758712861]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056990.858567673]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056990.958735098]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056991.058917268]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056991.158297013]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056991.258475965]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056991.358332870]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056991.458680707]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056991.558296075]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056991.658216030]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056991.758609455]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056991.858699703]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056991.958524971]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056992.058353621]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056992.158404078]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056992.259122517]: So[ERROR] [1792056993.159472979]: CAN TX failed on can0 ID=0x400: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
+[WARN] [1792056993.159505710]: [can_interface] duplicate ESTOP ignored: CAN2 feedback probe transmit failure
+[ERROR] [1792056994.159801713]: CAN TX failed on can0 ID=0x300: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
+[WARN] [1792056994.159888409]: [can_interface] duplicate ESTOP ignored: CAN2 feedback probe transmit failure
+[ERROR] [1792056995.259366796]: CAN TX failed on can0 ID=0x200: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
+[WARN] [1792056995.259493106]: [can_interface] duplicate ESTOP ignored: CAN2 feedback probe transmit failure
+cketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056992.358821176]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056992.458363538]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056992.558345580]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056992.658531834]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056992.758734802]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056992.858992930]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056992.958513697]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056993.058363378]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056993.158552254]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056993.258408054]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056993.358463393]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056993.458464328]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056993.558649487]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056993.658653517]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056993.758838756]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056993.858362151]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056993.958683452]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056994.058717237]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056994.158487286]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056994.259189564]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056994.358530670]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056994.458661132]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056994.558508932]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056994.658604479]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056994.758466302]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056994.858356487]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056994.958233904]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056995.058648675]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056995.158682020]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056995.258595286]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056995.358336590]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056995.458578446]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056995.558127797]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056995.658568707]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792056995.758722304]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.

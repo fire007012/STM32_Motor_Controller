@@ -6,6 +6,7 @@ static uint8_t status_snapshot[MOTOR_COUNT] = {0};
 static int32_t speed_snapshot[MOTOR_COUNT] = {0};
 static uint8_t estop_pending = 0U;
 static zdt_estop_event_t estop_event = {0};
+volatile ZDT_FeedbackDiagnostics_t zdt_feedback_diagnostics[MOTOR_COUNT];
 
 static uint32_t enter_critical(void)
 {
@@ -26,6 +27,7 @@ void zdt_status_init(void)
     for (i = 0U; i < MOTOR_COUNT; i++) {
         status_snapshot[i] = 0U;
         speed_snapshot[i] = 0;
+        zdt_feedback_diagnostics[i] = (ZDT_FeedbackDiagnostics_t){0};
     }
 
     estop_pending = 0U;
@@ -42,6 +44,8 @@ void zdt_status_update_status(uint8_t motor_idx, uint8_t status_flags)
 
     uint32_t primask = enter_critical();
     status_snapshot[motor_idx] = status_flags;
+    zdt_feedback_diagnostics[motor_idx].status_tick = HAL_GetTick();
+    zdt_feedback_diagnostics[motor_idx].status_updates++;
 
     if (zdt_status_classify(status_flags) == ZDT_EVENT_CLASS_FAULT) {
         estop_event.motor_idx = motor_idx;
@@ -60,6 +64,8 @@ void zdt_status_update_speed(uint8_t motor_idx, int32_t speed_rpm)
 
     uint32_t primask = enter_critical();
     speed_snapshot[motor_idx] = speed_rpm;
+    zdt_feedback_diagnostics[motor_idx].speed_tick = HAL_GetTick();
+    zdt_feedback_diagnostics[motor_idx].speed_updates++;
     exit_critical(primask);
 }
 

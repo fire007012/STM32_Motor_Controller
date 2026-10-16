@@ -1,0 +1,11 @@
+[WARN] [1792061897.261055136]: Waiting for /motor_velocity_cmd; no speed frames sent. Start planner + cmd_vel_mux or the custom-protocol keyboard test.
+[WARN] [1792061902.280524250]: Waiting for /motor_velocity_cmd; no speed frames sent. Start planner + cmd_vel_mux or the custom-protocol keyboard test.
+[INFO] [1792061896.995000139]: STM32 custom protocol: device=can0 TX=0x100 RX=0x101 standard frames. This is NOT native Y42 passthrough; CAN bitrate must match STM32 CAN1.
+[INFO] [1792061897.005749001]: Logical wheel 0 -> STM32 index 1 / CAN2 address 2, sign=1
+[INFO] [1792061897.005767034]: Logical wheel 1 -> STM32 index 0 / CAN2 address 1, sign=1
+[INFO] [1792061897.005772818]: Logical wheel 2 -> STM32 index 3 / CAN2 address 4, sign=1
+[INFO] [1792061897.005777760]: Logical wheel 3 -> STM32 index 2 / CAN2 address 3, sign=1
+[INFO] [1792061897.020075919]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792061897.020133256]: [can_interface] motion start state=IDLE
+[INFO] [1792061897.031325621]: First CAN RX on can0: ID=0x111 standard DLC=8; configured STM32 RX=0x101 standard.
+[INFO] [1792061897.070384366]: First CAN TX queued on can0: ID=0x200 extended DLC=2. Use STM32 RX/feedback to confirm delivery.

@@ -208,13 +208,27 @@ void TIM6_DAC_IRQHandler(void)
 }
 
 /* USER CODE BEGIN 1 */
+void CAN1_SCE_IRQHandler(void)
+{
+  can_transport_capture_error(&hcan1);
+  HAL_CAN_IRQHandler(&hcan1);
+}
+
+void CAN2_SCE_IRQHandler(void)
+{
+  can_transport_capture_error(&hcan2);
+  HAL_CAN_IRQHandler(&hcan2);
+}
+
 void CAN1_RX0_IRQHandler(void)
 {
+  can_transport_capture_rx_overrun(&hcan1);
   HAL_CAN_IRQHandler(&hcan1);
 }
 
 void CAN2_RX0_IRQHandler(void)
 {
+  can_transport_capture_rx_overrun(&hcan2);
   HAL_CAN_IRQHandler(&hcan2);
 }
 
@@ -229,6 +243,7 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
     {
       break;
     }
+    can_transport_record_rx(hcan, &rxHeader);
     if (hcan == &hcan1)
     {
       CAN1_RxCallback(rxHeader, rxData);
