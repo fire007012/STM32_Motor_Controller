@@ -7,7 +7,6 @@ extern "C" {
 
 #include "main.h"
 #include "cmsis_os.h"
-#include "distance_sensor.h"
 
 #define MOTOR_COUNT                         4U /* chassis only; former arm IDs 5/6 are PWM */
 #define MOTOR_CMD_QUEUE_LENGTH              16U
@@ -71,10 +70,31 @@ typedef struct {
     uint32_t received_tick;
 } Motor_Command_t;
 
+typedef enum {
+    MOTOR_REASON_NONE, MOTOR_REASON_ARGUMENT, MOTOR_REASON_QUEUE_EXPIRED,
+    MOTOR_REASON_CACHE_INCOMPLETE, MOTOR_REASON_POSITION_REFERENCE, /* legacy slot */
+    MOTOR_REASON_HEARTBEAT, MOTOR_REASON_FAULT, MOTOR_REASON_GEOMETRY, /* legacy */
+    MOTOR_REASON_COLLISION, /* legacy; no local ranging decision */
+    MOTOR_REASON_STOP_PENDING, MOTOR_REASON_SUBMIT,
+    MOTOR_REASON_NATIVE_REJECT, MOTOR_REASON_RESPONSE_TIMEOUT, MOTOR_REASON_CANCELED,
+    MOTOR_REASON_TRANSMIT
+} Motor_FailureReason_t;
+enum { MOTOR_PHASE_RECEIVED, MOTOR_PHASE_COLLECT, MOTOR_PHASE_VALIDATE,
+       MOTOR_PHASE_SUBMIT, MOTOR_PHASE_DRIVER, MOTOR_PHASE_FINAL };
+typedef struct {
+    uint32_t tick, age_ms;
+    uint16_t seq;
+    uint8_t cmd, motor_idx, phase, hal_status, reason, native_result;
+    uint8_t slave, function, staged_mask, collision_mask;
+} Motor_CommandDiagnostic_t;
+#define MOTOR_DIAGNOSTIC_LENGTH 64U
+extern volatile Motor_CommandDiagnostic_t motor_command_diagnostics[MOTOR_DIAGNOSTIC_LENGTH];
+extern volatile Motor_CommandDiagnostic_t motor_last_failure;
+extern volatile uint32_t motor_command_diagnostic_count;
+
 extern Motor_State_t motors[MOTOR_COUNT];
 
 void motor_control_init(void);
-void motor_update_distance(const distance_sensor_sample_t *sample);
 void motor_safety_poll(void);
 HAL_StatusTypeDef motor_enable_all(void);
 HAL_StatusTypeDef motor_configure_addresses(const uint8_t *addr_list, uint8_t count);
@@ -83,6 +103,9 @@ uint8_t motor_enqueue_command_from_isr(const Motor_Command_t *cmd);
 uint8_t motor_request_local_sync_start(uint16_t seq);
 uint8_t motor_fetch_command(Motor_Command_t *cmd, uint32_t timeout_ms);
 uint8_t motor_process_next_command(Motor_Command_t *cmd, HAL_StatusTypeDef *result);
+/* process consumes/submits work; only take_result yields a terminal ACK result.
+ * Service at 1 ms; HAL_BUSY while waiting is not a protocol failure. */
+uint8_t motor_take_command_result(Motor_Command_t *cmd, HAL_StatusTypeDef *result);
 uint16_t motor_allocate_cmd_seq(void);
 void motor_record_rx_result(uint8_t enqueue_ok);
 

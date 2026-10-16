@@ -35,15 +35,6 @@ class StartupOrder(unittest.TestCase):
         self.assertNotIn('ArmServo_PollButtons(',timer)
         self.assertIn('motor_safety_poll();',task)
 
-    def test_collision_geometry_does_not_mask_tim6(self):
-        motor=(ROOT/'Core/Src/motor_control.c').read_text(encoding='utf-8')
-        safety=motor[motor.index('void motor_safety_poll(void)'):motor.index('static uint8_t slot_to_speed')]
-        submit=motor[motor.index('static HAL_StatusTypeDef submit_motion'):motor.index('void motor_control_init')]
-        self.assertIn('collision_blocks(',safety)
-        self.assertNotIn('__disable_irq()',safety)
-        self.assertIn('collision_blocks(',submit)
-        self.assertNotIn('__disable_irq()',submit)
-
     def test_wkup_claims_local_sg90_control_before_starting_sequence(self):
         text=(ROOT/'Core/Src/main.c').read_text(encoding='utf-8')
         body=text[text.index('static uint8_t Servo_DemoClaimLocal(void)\n{'):text.index('static uint8_t Servo_DemoSetBoth(int16_t angle_deg)\n{')]

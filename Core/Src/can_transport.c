@@ -30,6 +30,8 @@ typedef struct {
     uint32_t failures;
     uint32_t last_failure_tick;
     uint8_t backoff;
+    uint8_t halted;
+    can_tx_failure_cb_t failure_callback;
 } CAN_TxQueue_t;
 
 static CAN_TxQueue_t queues[2];
@@ -116,6 +118,12 @@ void can_transport_init(CAN_HandleTypeDef *can1, CAN_HandleTypeDef *can2)
     }
     queues[0].bus = can1;
     queues[1].bus = can2;
+}
+
+void can_transport_set_tx_failure_callback(CAN_HandleTypeDef *bus, can_tx_failure_cb_t callback)
+{
+    CAN_TxQueue_t *queue = find_queue(bus);
+    if (queue != NULL) queue->failure_callback = callback;
 }
 
 static uint8_t valid_header(const CAN_TxHeaderTypeDef *header)
@@ -384,6 +392,8 @@ void can_transport_poll_completions(CAN_HandleTypeDef *bus)
                         diag->tx_error++;
                         queue->failures++;
                         slot->callback = NULL;
+                        if (queue->failure_callback != NULL && slot->token != 0U)
+                            queue->halted |= queue->failure_callback(slot->token, HAL_ERROR);
                     }
                 }
                 complete_slot(slot);
@@ -464,7 +474,7 @@ void can_transport_service(void)
                ((queue->count != 0U) || ((queue == &queues[0]) &&
                 ((replies.count != 0U) || (forwards.count != 0U)))) &&
                (ros_pending == 0U) &&
-               (backoff_active(queue) == 0U) &&
+               (backoff_active(queue) == 0U) && (queue->halted == 0U) &&
                (HAL_CAN_GetState(queue->bus) == HAL_CAN_STATE_LISTENING) &&
                ((queue->bus->Instance->ESR & CAN_ESR_BOFF) == 0U) &&
                (HAL_CAN_GetTxMailboxesFreeLevel(queue->bus) != 0U)) {
@@ -490,7 +500,11 @@ void can_transport_service(void)
                 if (submitted == HAL_BUSY) diag->hal_submit_busy++;
                 else diag->hal_submit_errors++;
                 if (queue == &queues[0]) ros_tx_failed(queue);
-                else queue->failures++;
+                else {
+                    queue->failures++;
+                    if (queue->failure_callback != NULL && queued->token != 0U)
+                        queue->halted |= queue->failure_callback(queued->token, submitted);
+                }
                 break;
             }
             for (uint8_t m = 0U; m < 3U; m++) {
@@ -526,6 +540,7 @@ void can_transport_cancel(CAN_HandleTypeDef *bus)
         can_bus_diagnostics[queue - queues].canceled_frames += queue->count +
             (queue == &queues[0] ? replies.count + forwards.count : 0U);
         abort_requests(queue);
+        queue->halted = 0U;
         if (queue == &queues[0]) {
             replies.head = replies.tail = replies.count = 0U;
             can_bus_diagnostics[0].reply_pending = 0U;

@@ -9,8 +9,7 @@
 #include "motor_control.h"
 #include "zdt_can_driver.h"
 #include "zdt_status.h"
-#include "chassis_collision.h"
-#include <math.h>
+#include "chassis_safety_config.h"
 
 static CAN_TypeDef can_registers[2];
 CAN_HandleTypeDef hcan1 = {0U, &can_registers[0]}, hcan2 = {1U, &can_registers[1]};
@@ -171,6 +170,34 @@ static void reply(uint8_t address, const uint8_t *data, uint8_t length)
     header.DLC = length;
     memcpy(packet, data, length);
     zdt_can_driver_process_response(header, packet);
+}
+
+/* Legacy single-command checks now wait for the terminal result, rather than
+ * confusing consumption of the queue with completion of native execution. */
+static uint8_t pump_one_command(Motor_Command_t *cmd, HAL_StatusTypeDef *result)
+{
+    if (!motor_process_next_command(cmd, result)) return 0U;
+    unsigned seen = sent_count[1];
+    for (unsigned step=0U; step<32U; ++step) {
+        drain();
+        while (seen<sent_count[1]) {
+            CAN_TxFrame_t *f = &sent[1][seen++];
+            uint8_t func = f->data[0];
+            if (f->header.ExtId && (func==0xF6U || func==0xFBU || func==0xFEU))
+                reply((uint8_t)(f->header.ExtId>>8),(uint8_t[]){func,2,0x6B},3);
+            else if (func==0xFFU)
+                reply(motor_get_address(0),(uint8_t[]){func,2,0x6B},3);
+        }
+        zdt_can_driver_timeout_poll();
+        if (motor_take_command_result(cmd,result)) return 1U;
+        tick++;
+        /* Do not eat another host command while completing this fixture. */
+        if (step==CHASSIS_CONTROL_PERIOD_MS-1U) {
+            (void)motor_process_next_command(cmd,result);
+        }
+    }
+    assert(!"command did not reach a terminal result");
+    return 0U;
 }
 
 static void test_startup_and_lengths(void)
@@ -351,8 +378,7 @@ static void test_mailbox_backpressure(void)
     assert(motor_apply_command(&cmd) == HAL_BUSY);
     assert(motors[0].target_position == 0);
     drain();
-    assert(sent_count[1] == 1U); /* canceled backlog, actual broadcast stop */
-    expect_frame(1, 0, 0, (uint8_t[]){0xFE, 0x98, 0, 0x6B}, 4);
+    assert(sent_count[1] == CAN_TX_QUEUE_LENGTH - 1U); /* atomic rejection preserves backlog */
     assert(zdt_can_driver_get_tx_fail_count() == 1U);
     puts("PASS mailbox exhaustion, HAL failure retry, atomic batches and failure propagation");
 }
@@ -485,18 +511,18 @@ static void test_local_sync_ordering_and_ros_gate(void)
     assert(motor_request_local_sync_start(0x1234U) == 1U);
 
     for (uint8_t i = 0U; i < MOTOR_COUNT; ++i) {
-        assert(motor_process_next_command(&executed, &result) == 1U && result == HAL_OK);
+        assert(pump_one_command(&executed, &result) == 1U && result == HAL_OK);
         assert(executed.cmd == MOTOR_CMD_SET_POSITION);
         assert(executed.source == MOTOR_CMD_SOURCE_REMOTE);
     }
-    assert(motor_process_next_command(&executed, &result) == 1U);
+    assert(pump_one_command(&executed, &result) == 1U);
     assert(executed.cmd == MOTOR_CMD_SYNC_START && result == HAL_OK);
     assert(executed.source == MOTOR_CMD_SOURCE_LOCAL_BUTTON);
     assert(executed.seq == 0x1234U);
 
     assert(motor_request_local_sync_start(0x1235U) == 1U);
     assert(motor_stop_all() == HAL_OK);
-    assert(motor_process_next_command(&executed, &result) == 0U);
+    assert(pump_one_command(&executed, &result) == 0U);
     puts("PASS local sync waits behind ROS commands, requires ROS activity and is canceled by stop");
 }
 
@@ -689,13 +715,9 @@ static void test_continuous_multi_motor_bursts(void)
             command.motor_idx = (uint8_t)motor;
             assert(motor_enqueue_command_from_isr(&command) == 1U);
         }
-        unsigned processed = 0U;
-        while (motor_process_next_command(&executed, &result) != 0U) {
-            assert(result == HAL_OK && test_primask == 0U);
-            processed++;
-            drain();
-        }
-        assert(processed == MOTOR_COUNT && command_count == 0U);
+        for (unsigned i=0; i<MOTOR_COUNT; ++i)
+            assert(pump_one_command(&executed,&result) && result==HAL_OK);
+        assert(command_count==0U);
     }
     motor_get_comm_stats(&after);
     assert(after.exec_ok_count - before.exec_ok_count == 50U * MOTOR_COUNT);
@@ -744,22 +766,6 @@ static void test_local_pwm_ack_routing(void)
 }
 
 
-static void range_sample(uint8_t id, uint16_t raw, uint8_t status)
-{
-    distance_sensor_sample_t sample = {.sensor_id=id, .distance_mm=raw,
-        .status=status, .valid=(status & 1U) != 0U, .timestamp_ms=tick};
-    motor_update_distance(&sample);
-}
-
-/* Complete synthetic RPM group: this fixture is NOT the real wheel geometry. */
-static HAL_StatusTypeDef group(int32_t a, int32_t b, int32_t c, int32_t d)
-{
-    int32_t rpm[4] = {a,b,c,d};
-    for (uint8_t i=0U; i<4U; ++i)
-        assert(motor_set_velocity_ex(i, rpm[i], 50U, 1U) == HAL_OK);
-    return motor_trigger_sync_motion();
-}
-
 static void expect_actual_stop(void)
 {
     drain();
@@ -770,167 +776,52 @@ static void expect_actual_stop(void)
         assert(!(sent[0][i].header.StdId == ROS_CAN_STATUS_ID && sent[0][i].data[1] == 6U));
 }
 
-static void test_collision_thresholds_and_directions(void)
+static void test_ros_owned_parking(void)
 {
-    assert(fabsf(CHASSIS_MOTOR_RPM_TO_WHEEL_MPS-0.0078539816f)<0.0000001f);
-    assert(fabsf(chassis_collision_stop_mm(0.20f)-160.0f)<0.001f);
-    assert(fabsf(chassis_collision_stop_mm(0.25f)-181.25f)<0.001f);
-    const uint8_t ids[4]={0U,1U,2U,5U};
-    const int signs[4][4]={{1,1,1,1},{-1,1,1,-1},{1,-1,-1,1},{-1,-1,-1,-1}};
-    for (unsigned speed=200U; speed<=250U; speed+=50U) {
-        unsigned threshold = speed == 200U ? 160U : 181U;
-        for (unsigned dir=0U; dir<4U; ++dir) {
-            reset(); zdt_set_response_policy(ZDT_RESPONSE_FIRE_AND_FORGET);
-            range_sample(ids[dir],(uint16_t)(threshold+(dir?50U:0U)+1U),1U);
-            assert(group(signs[dir][0]*(int)speed,signs[dir][1]*(int)speed,
-                         signs[dir][2]*(int)speed,signs[dir][3]*(int)speed)==HAL_OK);
-            drain();
-            range_sample(ids[dir],(uint16_t)(threshold+(dir?50U:0U)),1U);
-            motor_safety_poll(); expect_actual_stop();
-        }
+    Motor_Command_t in={.cmd=MOTOR_CMD_SET_VELOCITY,.motor_idx=2,.value=-5,.param0=50,.seq=400}, out;
+    HAL_StatusTypeDef status;
+    reset();
+    assert(motor_enqueue_command_from_isr(&in));
+    assert(pump_one_command(&out,&status) && status==HAL_OK);
+    assert(sent_count[1]==1 && motors[2].target_velocity==-50);
+    /* Heartbeats do not impose an independent running-command lease. */
+    for(unsigned n=0;n<10;++n) { tick+=100; motor_set_ros_alive(); motor_safety_poll(); }
+    drain(); assert(sent_count[1]==1 && motors[2].target_velocity==-50);
+    /* Parameter/cache/stale-queue rejections report failure without parking. */
+    in.cmd=MOTOR_CMD_SYNC_START;
+    assert(motor_enqueue_command_from_isr(&in));
+    assert(pump_one_command(&out,&status) && status==HAL_ERROR);
+    assert(motor_last_failure.reason==MOTOR_REASON_CACHE_INCOMPLETE);
+    in.cmd=MOTOR_CMD_SET_VELOCITY; in.motor_idx=9;
+    assert(motor_enqueue_command_from_isr(&in));
+    assert(pump_one_command(&out,&status) && status==HAL_ERROR);
+    in.motor_idx=2;
+    assert(motor_enqueue_command_from_isr(&in));
+    tick+=501; motor_set_ros_alive();
+    assert(pump_one_command(&out,&status) && status==HAL_TIMEOUT);
+    assert(motor_last_failure.reason==MOTOR_REASON_QUEUE_EXPIRED);
+    drain(); assert(sent_count[1]==1 && motors[2].target_velocity==-50);
+    /* Communication loss still stops once and never resumes old motion. */
+    tick+=501; motor_safety_poll(); expect_actual_stop();
+    unsigned stopped=sent_count[1];
+    motor_safety_poll(); drain(); assert(sent_count[1]==stopped);
+    motor_set_ros_alive(); motor_safety_poll(); drain(); assert(sent_count[1]==stopped);
+    /* A real motor fault still parks, inhibits motion and is not spammed. */
+    motors[1].fault_flag=1; motor_safety_poll(); expect_actual_stop();
+    stopped=sent_count[1]; motor_safety_poll(); drain(); assert(sent_count[1]==stopped);
+    assert(motor_enqueue_command_from_isr(&in));
+    assert(pump_one_command(&out,&status) && status==HAL_ERROR);
+    assert(motor_last_failure.reason==MOTOR_REASON_FAULT);
+    drain(); assert(sent_count[1]==stopped);
+    reset();
+    /* Position modes are forwarded without local geometry/reference gating. */
+    in.cmd=MOTOR_CMD_SET_POSITION; in.value=3200;
+    for(uint8_t mode=0;mode<3;++mode) {
+        in.param1=mode;
+        assert(motor_enqueue_command_from_isr(&in));
+        assert(pump_one_command(&out,&status) && status==HAL_OK);
     }
-    for (unsigned dir=1U; dir<4U; ++dir) {
-        reset(); zdt_set_response_policy(ZDT_RESPONSE_FIRE_AND_FORGET);
-        range_sample(ids[dir],50U,1U); /* valid zero clearance, not missing */
-        assert(group(signs[dir][0]*50,signs[dir][1]*50,
-                     signs[dir][2]*50,signs[dir][3]*50)==HAL_ERROR);
-        expect_actual_stop();
-    }
-    reset(); zdt_set_response_policy(ZDT_RESPONSE_FIRE_AND_FORGET);
-    range_sample(5U,50U,1U); /* rear obstacle does not prevent forward departure */
-    assert(group(200,200,200,200)==HAL_OK);
-    range_sample(0U,100U,1U); motor_safety_poll(); expect_actual_stop();
-    assert(group(-200,200,200,-200)==HAL_OK); /* new safe sideways request */
-    drain();
-    for (unsigned i=0U; i<4U; ++i) assert(motors[i].target_velocity != 0);
-    puts("PASS acceptance 2-5,7: directional 160/210 and 181.25/231.25 mm, zero clearance, actual stop and safe lateral escape");
-}
-
-static void test_collision_missing_rotation_calibration_hysteresis(void)
-{
-    const uint8_t ids[4]={0U,1U,2U,5U};
-    reset(); zdt_set_response_policy(ZDT_RESPONSE_FIRE_AND_FORGET);
-    for(unsigned i=0U;i<4U;++i) range_sample(ids[i],0xFFFFU,0x10U);
-    assert(group(200,200,200,200)==HAL_OK); drain();
-    motor_safety_poll(); drain(); assert(motors[0].target_velocity==2000);
-    range_sample(3U,50U,1U); range_sample(4U,50U,1U);
-    motor_safety_poll(); assert(motors[0].target_velocity==2000);
-    for(unsigned dir=0U;dir<4U;++dir) {
-        reset(); zdt_set_response_policy(ZDT_RESPONSE_FIRE_AND_FORGET);
-        range_sample(ids[dir],(uint16_t)(dir?140U:90U),1U);
-        assert(group(-20,20,-20,20)==HAL_ERROR); expect_actual_stop();
-        range_sample(ids[dir],(uint16_t)(dir?180U:130U),1U);
-        assert(group(-20,20,-20,20)==HAL_ERROR); /* release strictly >100+30 */
-        range_sample(ids[dir],(uint16_t)(dir?181U:131U),1U);
-        assert(group(-20,20,-20,20)==HAL_OK);
-    }
-    reset(); zdt_set_response_policy(ZDT_RESPONSE_FIRE_AND_FORGET);
-    range_sample(0U,250U,1U); assert(group(-20,20,-20,20)==HAL_OK);
-    range_sample(1U,140U,1U);
-    assert(group(180,220,180,220)==HAL_ERROR); /* vx=.2 + turn, left rotation clearance=90 */
-    range_sample(1U,0xFFFFU,4U);
-    for(unsigned mm=270U;mm>=250U;--mm) {
-        range_sample(0U,(uint16_t)mm,1U);
-        assert(group(50,50,50,50)==HAL_OK); drain();
-    }
-    reset(); zdt_set_response_policy(ZDT_RESPONSE_FIRE_AND_FORGET);
-    range_sample(0U,160U,1U); assert(group(200,200,200,200)==HAL_ERROR);
-    range_sample(0U,190U,1U); assert(group(200,200,200,200)==HAL_ERROR);
-    range_sample(0U,191U,1U); assert(group(200,200,200,200)==HAL_OK);
-    drain();
-    range_sample(0U,100U,1U); motor_safety_poll(); expect_actual_stop();
-    range_sample(0U,0xFFFFU,4U); assert(group(200,200,200,200)==HAL_OK);
-    drain();
-    range_sample(0U,100U,1U); motor_safety_poll(); expect_actual_stop();
-    tick+=CHASSIS_RANGE_FRESH_MS+1U;
-    assert(group(200,200,200,200)==HAL_OK); /* expired distance stops blocking */
-    puts("PASS acceptance 1,6,8-11: missing/stale ranges, arm exclusion, circle turning, 250 mm calibration and 30 mm hysteresis");
-}
-
-static void test_motion_lifetime_and_atomic_sync(void)
-{
-    reset(); zdt_set_response_policy(ZDT_RESPONSE_FIRE_AND_FORGET);
-    range_sample(0U,100U,1U);
-    /* First partial group could look like unsafe forward/rotation. It must
-     * remain cached until the full SAFE lateral vector has arrived. */
-    assert(group(-200,200,200,-200)==HAL_OK); drain();
-    unsigned start_count=sent_count[1];
-    assert(motor_set_velocity_ex(0U,200,50U,1U)==HAL_OK);
-    assert(motor_trigger_sync_motion()==HAL_ERROR); expect_actual_stop();
-    assert(sent_count[1]==start_count+1U); /* no partial trigger escaped */
-
-    reset(); zdt_set_response_policy(ZDT_RESPONSE_FIRE_AND_FORGET);
-    assert(group(200,200,200,200)==HAL_OK); drain();
-    tick=501U; motor_set_ros_alive(); motor_safety_poll(); expect_actual_stop();
-    range_sample(0U,1000U,1U); motor_safety_poll(); drain();
-    assert(motors[0].target_velocity==0); /* no resurrection after timeout */
-    assert(group(200,200,200,200)==HAL_OK); drain();
-    tick+=501U; motor_safety_poll(); expect_actual_stop(); /* heartbeat loss */
-    motor_set_ros_alive(); motors[2].fault_flag=1U;
-    assert(group(200,200,200,200)==HAL_ERROR); expect_actual_stop();
-
-    reset(); zdt_set_response_policy(ZDT_RESPONSE_FIRE_AND_FORGET);
-    Motor_Command_t cmd={.cmd=MOTOR_CMD_SET_VELOCITY,.motor_idx=0U,.value=200};
-    Motor_Command_t out; HAL_StatusTypeDef result;
-    assert(motor_enqueue_command_from_isr(&cmd));
-    tick=501U; motor_set_ros_alive();
-    assert(motor_process_next_command(&out,&result) && result==HAL_TIMEOUT);
-    expect_actual_stop();
-    for(uint8_t i=0U;i<4U;++i) assert(motor_set_velocity_ex(i,200,50,1)==HAL_OK);
-    tick+=501U; motor_set_ros_alive();
-    assert(motor_trigger_sync_motion()==HAL_ERROR); expect_actual_stop();
-
-    reset(); zdt_set_response_policy(ZDT_RESPONSE_FIRE_AND_FORGET);
-    cmd.motor_idx=0xFFU;
-    assert(motor_enqueue_command_from_isr(&cmd));
-    tick=400U; motor_set_ros_alive();
-    assert(motor_process_next_command(&out,&result) && result==HAL_OK);
-    drain();
-    tick=501U; motor_set_ros_alive(); motor_safety_poll(); expect_actual_stop();
-    /* Receiving at t=0 and applying at t=400 must still expire at t>500. */
-
-    reset(); zdt_set_response_policy(ZDT_RESPONSE_FIRE_AND_FORGET);
-    range_sample(0U,160U,1U);
-    for (uint8_t i=0U;i<4U;++i) {
-        motor_set_speed_profile(i,200U,50U);
-        assert(motor_set_position_ex(i,3200,50,2,1)==HAL_OK);
-        motor_set_speed_profile(i,50U,50U);
-    }
-    /* The cached position was sent at 200 RPM. A later profile must not
-     * make the collision calculation pretend that it was sent at 50 RPM. */
-    assert(motor_trigger_sync_motion()==HAL_ERROR); expect_actual_stop();
-    puts("PASS fresh full sync groups, queue/cache/motion deadlines, heartbeat and severe motor fault");
-}
-
-static void test_measured_body_speed_and_no_raw_bypass(void)
-{
-    reset(); zdt_set_response_policy(ZDT_RESPONSE_FIRE_AND_FORGET);
-    /* Feed actual signed 0.1 RPM replies through the production decoder.
-     * All four wheels at +250 RPM -> vx=.25 in the synthetic fixture. */
-    uint8_t got=0U;
-    for(unsigned step=0U; step<40U && got!=15U; ++step) {
-        motor_update_status(1U); drain();
-        CAN_TxFrame_t *frame=&sent[1][sent_count[1]-1U];
-        uint8_t address=(uint8_t)(frame->header.ExtId>>8);
-        if(frame->data[0]==0x35U) {
-            reply(address,(uint8_t[]){0x35,0,0x09,0xC4,0x6B},5);
-            got|=(uint8_t)(1U<<(address-1U));
-        } else if(frame->data[0]==0x36U) reply(address,(uint8_t[]){0x36,0,0,0,0,0,0x6B},7);
-        else reply(address,(uint8_t[]){0x3A,0x83,0x6B},3);
-        tick += 20U;
-    }
-    assert(got==15U);
-    range_sample(0U,170U,1U);
-    assert(group(50,50,50,50)==HAL_ERROR); expect_actual_stop(); /* measured .25 overrides request .05 */
-    tick+=CHASSIS_FEEDBACK_FRESH_MS+1U;
-    range_sample(0U,170U,1U);
-    /* First clear the previous direction's held threshold via missing range. */
-    range_sample(0U,0xFFFFU,4U); assert(group(50,50,50,50)==HAL_OK); drain();
-    range_sample(0U,170U,1U); motor_safety_poll(); assert(motors[0].target_velocity==500);
-    CAN_RxHeaderTypeDef hdr={.IDE=CAN_ID_EXT,.ExtId=0x100,.DLC=8};
-    CAN1_RxCallback(hdr,(uint8_t[]){0xF6,0,0,50,3,0xE8,0,0x6B});
-    unsigned count=sent_count[1]; drain(); assert(sent_count[1]==count);
-    puts("PASS 0.1 RPM feedback conversion, freshness, measured braking speed and raw motion bypass rejection");
+    puts("PASS ROS-owned braking, immediate single wheel, validation-only rejection, retained link/fault stop and position modes");
 }
 
 static void test_reply_priority_and_recovery(void)
@@ -1074,9 +965,13 @@ static void test_can_error_diagnostics(void)
 
 #include "can_latest_checks.inc"
 #include "can_forward_checks.inc"
+#include "motion_execution_checks.inc"
 
 int main(void)
 {
+    test_ros_owned_parking();
+    test_async_motion_outcomes();
+    test_button_cache_wait_and_failure();
     test_native_forward_backoff_and_priority();
     test_native_forward_retry_expiry_and_cancel();
     test_native_forward_capacity_and_arbitration();
@@ -1102,10 +997,6 @@ int main(void)
     test_polling_and_faults();
     test_bidirectional_bridge_and_rejection();
     test_aa_bounds_and_length();
-    test_collision_thresholds_and_directions();
-    test_collision_missing_rotation_calibration_hysteresis();
-    test_motion_lifetime_and_atomic_sync();
-    test_measured_body_speed_and_no_raw_bypass();
     puts("All CAN/control regression tests passed.");
     return 0;
 }

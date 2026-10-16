@@ -18,6 +18,10 @@ typedef struct {
 } CAN_TxFrame_t;
 
 typedef void (*can_tx_complete_cb_t)(uint32_t token);
+typedef uint8_t (*can_tx_failure_cb_t)(uint32_t token, HAL_StatusTypeDef status);
+/* CAN2 command failure observer. It must not mutate the transport from inside
+ * this callback. Return 1 to halt further TX; the owner cancels the failed transaction on its next turn. */
+void can_transport_set_tx_failure_callback(CAN_HandleTypeDef *bus, can_tx_failure_cb_t callback);
 
 /* Live local snapshots, also readable through SWD if CAN cannot transmit.
  * error_events counts SCE IRQ observations, not individual physical errors.

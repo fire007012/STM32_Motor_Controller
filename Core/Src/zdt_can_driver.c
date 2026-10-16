@@ -13,6 +13,7 @@ typedef enum {
 typedef struct {
     uint8_t in_use;
     uint8_t slave;
+    uint8_t response_slave;
     uint8_t function_code;
     uint8_t tx_len;
     uint8_t wait_response;
@@ -25,6 +26,8 @@ typedef struct {
     zdt_speed_cb_t speed_cb;
     zdt_position_cb_t position_cb;
     zdt_status_cb_t status_cb;
+    uint32_t command_tag;
+    zdt_result_cb_t result_cb;
 } ZDT_PendingReq_t;
 
 static CAN_HandleTypeDef *zdt_can = NULL;
@@ -38,6 +41,35 @@ static zdt_response_policy_t response_policy = ZDT_RESPONSE_WAIT_ACK;
 static uint32_t timeout_drop_count = 0U;
 static uint32_t tx_fail_count = 0U;
 static uint32_t tx_token_counter = 0U;
+static uint32_t command_tag;
+static zdt_result_cb_t command_callback;
+static uint8_t command_failed;
+static uint8_t motion_guard;
+static uint32_t motion_guard_tick;
+static uint8_t sync_response_slave = 1U;
+
+void zdt_set_sync_response_slave(uint8_t slave)
+{
+    sync_response_slave = slave;
+}
+
+static uint8_t motion_function(uint8_t function)
+{
+    return function == ZDT_CMD_SPEED_MODE || function == ZDT_CMD_POSITION_MODE ||
+           function == ZDT_CMD_SYNC_TRIGGER;
+}
+
+static uint8_t motion_guard_active(void)
+{
+    if (motion_guard && HAL_GetTick()-motion_guard_tick >= 50U) motion_guard = 0U;
+    return motion_guard;
+}
+
+void zdt_set_command_context(uint32_t tag, zdt_result_cb_t callback)
+{
+    command_tag = tag;
+    command_callback = callback;
+}
 
 static uint32_t next_tx_token(void)
 {
@@ -71,6 +103,29 @@ static void zdt_exit_critical(uint32_t primask)
 static void clear_pending(void)
 {
     (void)memset(&pending_req, 0, sizeof(pending_req));
+}
+
+static void finish_pending(HAL_StatusTypeDef status, uint8_t native_result, uint8_t canceled)
+{
+    ZDT_PendingReq_t req = pending_req;
+    clear_pending();
+    if (req.result_cb != NULL && status != HAL_OK) command_failed = 1U;
+    if (req.result_cb != NULL && status != HAL_OK && motion_function(req.function_code)) {
+        motion_guard = 1U;
+        motion_guard_tick = HAL_GetTick();
+    }
+    if (req.result_cb != NULL)
+        req.result_cb(req.command_tag, req.slave, req.function_code, status, native_result, canceled);
+}
+
+static uint8_t transmission_failed(uint32_t token, HAL_StatusTypeDef status)
+{
+    if (pending_req.in_use && pending_req.tx_token == token && pending_req.result_cb != NULL &&
+        status != HAL_BUSY) {
+        finish_pending(status, 0U, 0U);
+        return 1U;
+    }
+    return 0U;
 }
 
 static void pending_queue_reset(void)
@@ -150,6 +205,7 @@ static void save_pending(uint8_t slave,
 {
     pending_req.in_use = 1U;
     pending_req.slave = slave;
+    pending_req.response_slave = slave == 0U && function_code == ZDT_CMD_SYNC_TRIGGER ? sync_response_slave : slave;
     pending_req.function_code = function_code;
     pending_req.type = type;
     pending_req.tx_len = payload_len;
@@ -161,6 +217,8 @@ static void save_pending(uint8_t slave,
     pending_req.speed_cb = speed_cb;
     pending_req.position_cb = position_cb;
     pending_req.status_cb = status_cb;
+    pending_req.command_tag = type == ZDT_PENDING_NONE ? command_tag : 0U;
+    pending_req.result_cb = type == ZDT_PENDING_NONE ? command_callback : NULL;
 
     if ((payload != NULL) && (payload_len <= sizeof(pending_req.tx_data))) {
         (void)memcpy(pending_req.tx_data, payload, payload_len);
@@ -194,14 +252,17 @@ static uint8_t enqueue_pending(uint8_t slave,
     (void)memset(slot, 0, sizeof(*slot));
     slot->in_use = 1U;
     slot->slave = slave;
+    slot->response_slave = slave == 0U && function_code == ZDT_CMD_SYNC_TRIGGER ? sync_response_slave : slave;
     slot->function_code = function_code;
     slot->type = type;
     slot->tx_len = payload_len;
-    slot->wait_response = ((slave != 0U) &&
+    slot->wait_response = ((slave != 0U || (function_code == ZDT_CMD_SYNC_TRIGGER && command_callback != NULL)) &&
                           ((type != ZDT_PENDING_NONE) || (response_policy == ZDT_RESPONSE_WAIT_ACK))) ? 1U : 0U;
     slot->speed_cb = speed_cb;
     slot->position_cb = position_cb;
     slot->status_cb = status_cb;
+    slot->command_tag = type == ZDT_PENDING_NONE ? command_tag : 0U;
+    slot->result_cb = type == ZDT_PENDING_NONE ? command_callback : NULL;
     (void)memcpy(slot->tx_data, payload, payload_len);
 
     pending_tail = (uint8_t)((pending_tail + 1U) % queue_size);
@@ -239,15 +300,17 @@ static uint8_t dequeue_pending(ZDT_PendingReq_t *out)
 static void dispatch_next_pending(void)
 {
     ZDT_PendingReq_t req;
+    if (command_failed) return;
     /* Called with interrupts masked by response handling or timeout polling. */
     while ((pending_req.in_use == 0U) && (pending_count != 0U)) {
         HAL_StatusTypeDef status;
         req = pending_queue[pending_head];
+        if (req.result_cb != NULL && motion_function(req.function_code) && motion_guard_active()) return;
         pending_req = req;
         pending_req.retries = 0U;
         pending_req.last_tick = HAL_GetTick();
         pending_req.tx_completed = 0U;
-        pending_req.tx_token = (req.wait_response != 0U) ? next_tx_token() : 0U;
+        pending_req.tx_token = (req.wait_response || req.result_cb != NULL) ? next_tx_token() : 0U;
         status = zdt_send_frames(req.slave, req.tx_data, req.tx_len, pending_req.tx_token);
         if (status == HAL_BUSY) {
             clear_pending();
@@ -256,8 +319,8 @@ static void dispatch_next_pending(void)
         (void)dequeue_pending(&req);
         if (status != HAL_OK) {
             timeout_drop_count++;
-            clear_pending();
-        } else if (req.wait_response == 0U) {
+            finish_pending(status, 0U, 0U);
+        } else if (req.wait_response == 0U && req.result_cb == NULL) {
             clear_pending();
         }
     }
@@ -276,6 +339,15 @@ static HAL_StatusTypeDef send_and_optionally_wait_locked(uint8_t slave,
     uint32_t primask;
     uint8_t has_pending;
 
+    if (command_failed) return HAL_BUSY;
+    /* After cancellation/timeout drain late native replies before sending a
+     * NEW motion. Never resend the failed motion. Native frames have no seq. */
+    if (type == ZDT_PENDING_NONE && command_callback != NULL &&
+        motion_function(payload[0]) && motion_guard_active()) {
+        return enqueue_pending(slave, payload[0], type, payload, payload_len,
+                               speed_cb, position_cb, status_cb) ? HAL_OK : HAL_BUSY;
+    }
+
     /* A missing motor's background read must not delay a new motion command.
      * Its late reply has a different function code and will be ignored. */
     if ((type == ZDT_PENDING_NONE) && (pending_req.in_use != 0U) &&
@@ -285,7 +357,8 @@ static HAL_StatusTypeDef send_and_optionally_wait_locked(uint8_t slave,
     }
 
     need_wait = (type != ZDT_PENDING_NONE) ? 1U : 0U;
-    if ((type == ZDT_PENDING_NONE) && (response_policy == ZDT_RESPONSE_WAIT_ACK) && (slave != 0U)) {
+    if ((type == ZDT_PENDING_NONE) && (response_policy == ZDT_RESPONSE_WAIT_ACK) &&
+        (slave != 0U || (payload[0] == ZDT_CMD_SYNC_TRIGGER && command_callback != NULL))) {
         need_wait = 1U;
     }
 
@@ -305,15 +378,16 @@ static HAL_StatusTypeDef send_and_optionally_wait_locked(uint8_t slave,
         return HAL_OK;
     }
 
-    if ((need_wait != 0U) && (slave != 0U)) {
+    if (((need_wait != 0U) && (slave != 0U)) || command_callback != NULL) {
         primask = zdt_enter_critical();
         save_pending(slave, payload[0], type, payload, payload_len, speed_cb, position_cb, status_cb);
+        pending_req.wait_response = need_wait;
         zdt_exit_critical(primask);
     }
 
     status = zdt_send_frames(slave, payload, payload_len,
-                             ((need_wait != 0U) && (slave != 0U)) ? pending_req.tx_token : 0U);
-    if ((status != HAL_OK) && (need_wait != 0U) && (slave != 0U)) {
+                             pending_req.in_use ? pending_req.tx_token : 0U);
+    if ((status != HAL_OK) && pending_req.in_use) {
         primask = zdt_enter_critical();
         clear_pending();
         zdt_exit_critical(primask);
@@ -350,20 +424,31 @@ zdt_response_policy_t zdt_get_response_policy(void)
 void zdt_can_driver_init(CAN_HandleTypeDef *hcan_bus)
 {
     zdt_can = hcan_bus;
+    can_transport_set_tx_failure_callback(zdt_can, transmission_failed);
     clear_pending();
     pending_queue_reset();
     response_policy = ZDT_RESPONSE_WAIT_ACK;
     timeout_drop_count = 0U;
     tx_fail_count = 0U;
     tx_token_counter = 0U;
+    command_tag = 0U;
+    command_callback = NULL;
+    command_failed = 0U;
+    motion_guard = 0U;
 }
 
 void zdt_can_driver_cancel(void)
 {
     uint32_t primask = zdt_enter_critical();
-    clear_pending();
+    if (pending_req.in_use) finish_pending(HAL_ERROR, 0U, 1U);
+    for (uint8_t n = 0U; n < pending_count; ++n) {
+        ZDT_PendingReq_t *req = &pending_queue[(pending_head + n) % 16U];
+        if (req->result_cb != NULL)
+            req->result_cb(req->command_tag, req->slave, req->function_code, HAL_ERROR, 0U, 1U);
+    }
     pending_queue_reset();
     can_transport_cancel(zdt_can);
+    command_failed = 0U;
     zdt_exit_critical(primask);
 }
 
@@ -545,6 +630,10 @@ static void process_response_locked(CAN_RxHeaderTypeDef rxHeader, uint8_t rxData
     if (packet != 0U) {
         return;
     }
+    if (motion_guard_active() && rxHeader.DLC == 3U && motion_function(rxData[0])) {
+        motion_guard_tick = HAL_GetTick(); /* require a quiet response window */
+        return;
+    }
 
     /* A reply IRQ may run before the motor task observes TX completion. */
     can_transport_poll_completions(zdt_can);
@@ -556,7 +645,7 @@ static void process_response_locked(CAN_RxHeaderTypeDef rxHeader, uint8_t rxData
         return;
     }
 
-    if (slave != active_req.slave) {
+    if (slave != active_req.response_slave) {
         return;
     }
 
@@ -565,9 +654,10 @@ static void process_response_locked(CAN_RxHeaderTypeDef rxHeader, uint8_t rxData
         return;
     }
 
-    if ((rxHeader.DLC >= 2U) && ((rxData[1] == 0xE2U) || (rxData[1] == 0xEEU))) {
-        clear_pending();
-        dispatch_next_pending();
+    if (rxHeader.DLC == 3U && ((rxData[1] == 0xE2U) || (rxData[1] == 0xEEU))) {
+        finish_pending(HAL_ERROR, rxData[1], 0U);
+        /* A tracked motion failure must reach the task before more motion. */
+        if (active_req.result_cb == NULL) dispatch_next_pending();
         return;
     }
 
@@ -611,12 +701,13 @@ static void process_response_locked(CAN_RxHeaderTypeDef rxHeader, uint8_t rxData
         }
 
         case ZDT_PENDING_NONE:
-            if ((rxHeader.DLC != 3U) || ((rxData[1] != 0x02U) && (rxData[1] != 0x9FU))) { return; }
+            /* 9F is completion of an earlier move, never acceptance of this one. */
+            if ((rxHeader.DLC != 3U) || (rxData[1] != 0x02U)) { return; }
         default:
             break;
     }
 
-    clear_pending();
+    finish_pending(HAL_OK, active_req.type == ZDT_PENDING_NONE ? rxData[1] : 0U, 0U);
     dispatch_next_pending();
 }
 
@@ -643,7 +734,17 @@ static void timeout_poll_locked(void)
         return;
     }
     if (active_req.tx_completed == 0U) {
+        /* A failed/never-completed mailbox also needs a bounded terminal result. */
+        if (HAL_GetTick() - active_req.last_tick > 500U) {
+            timeout_drop_count++;
+            finish_pending(HAL_TIMEOUT, 0U, 0U);
+        }
         return; /* Queued or retrying in hardware: the response clock has not started. */
+    }
+    if (!active_req.wait_response) {
+        finish_pending(HAL_OK, 0U, 0U); /* broadcast / explicit no-ACK policy: TX only */
+        dispatch_next_pending();
+        return;
     }
 
     now = HAL_GetTick();
@@ -667,9 +768,9 @@ static void timeout_poll_locked(void)
     } else {
         timeout_drop_count++;
         primask = zdt_enter_critical();
-        clear_pending();
+        finish_pending(HAL_TIMEOUT, 0U, 0U);
         zdt_exit_critical(primask);
-        dispatch_next_pending();
+        if (active_req.result_cb == NULL) dispatch_next_pending();
     }
 }
 

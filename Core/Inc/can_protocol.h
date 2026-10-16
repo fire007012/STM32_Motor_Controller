@@ -23,7 +23,7 @@ extern "C" {
  * Invalid distance is 0xFFFF with status bit0 (VALID) cleared. Sigma is
  * currently unsupported (0xFFFF). Sequence wraps independently per sensor.
  * Distances are sensor raw ranges, WITHOUT the chassis inset correction.
- * IDs 0/1/2/5 feed direction-aware, dynamic local collision protection.
+ * ROS owns distance-based braking/avoidance; STM32 only reports samples.
  * Ordinary obstacles and range errors never set EMERGENCY (0x20).
  * IDs 3/4 are measurements for ROS stage-controlled lateral alignment;
  * STM32 does not compare them or generate lateral chassis commands.
@@ -49,7 +49,7 @@ extern "C" {
  *   0x08 set address map, value byte0..3 = motor0..3 slave address;
  *        param0 is unused; only the four chassis addresses remain
  *   0x09 heartbeat, no motion change, only refreshes ROS liveness watchdog
- * byte1: motor index 0..4 or 0xFF for all motors
+ * byte1: motor index 0..3 or 0xFF for all motors
  * byte2..5: value (int32 little-endian)
  * byte6: param0
  * byte7: param1
@@ -58,8 +58,9 @@ extern "C" {
 /* Legacy chassis ID 0x201 (STD or EXT), 8 bytes:
  * [0x01, motor_idx, int32 RPM little-endian, reserved, reserved].
  * Uses acceleration 50 RPM/s, immediate execution and the configured address map.
- * ACK 0x102 result=0 means accepted for transmission; driver ACK/error is
- * forwarded separately as an extended frame. A queue rejection returns result=1.
+ * ACK 0x102 result=0 means native confirmation with default WAIT_ACK
+ * (TX completion with explicit fire-and-forget). Native responses are also
+ * forwarded as extended frames. Rejection/execution failure returns result=1.
  */
 
 /* Physical button event frame (ROS_CAN_BUTTON_EVENT_ID, standard ID 0x112):

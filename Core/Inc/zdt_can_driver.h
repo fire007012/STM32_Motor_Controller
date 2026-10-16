@@ -28,6 +28,11 @@ extern "C" {
 typedef void (*zdt_speed_cb_t)(uint8_t slave, int32_t speed_rpm);
 typedef void (*zdt_position_cb_t)(uint8_t slave, int32_t position_raw);
 typedef void (*zdt_status_cb_t)(uint8_t slave, uint8_t status_flags);
+/* Internal command correlation; no changes to the native wire protocol. */
+typedef void (*zdt_result_cb_t)(uint32_t tag, uint8_t slave, uint8_t function,
+                                HAL_StatusTypeDef status, uint8_t native_result, uint8_t canceled);
+void zdt_set_command_context(uint32_t tag, zdt_result_cb_t callback);
+void zdt_set_sync_response_slave(uint8_t slave);
 
 typedef enum {
 	ZDT_RESPONSE_WAIT_ACK = 0,

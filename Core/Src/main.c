@@ -28,7 +28,7 @@
 #include "motor_control.h"
 #include "zdt_status.h"
 #include "distance_sensor.h"
-#include "chassis_collision.h"
+#include "chassis_safety_config.h"
 #include "arm_servo.h"
 
 /* USER CODE END Includes */
@@ -1362,7 +1362,7 @@ void StartDefaultTask(void *argument)
 
 /* USER CODE BEGIN Header_StartMotorControlTask */
 /**
-  * @brief  Pulls command queue and updates target registers every 10ms.
+  * @brief  Processes commands every 1ms and checks link/fault guards every 10ms.
   * @param  argument: Not used
   * @retval None
   */
@@ -1375,8 +1375,7 @@ void StartMotorControlTask(void *argument)
 
   for(;;)
   {
-    /* Sample the physical arm keys from task context. TIM6 stays short and
-     * continues generating PWM/HAL ticks while collision checks run. */
+    /* Sample the physical arm keys from task context; keep TIM6 short. */
     Servo_PollButtons();
     WkupDemo_Service();
     uint32_t now = HAL_GetTick();
@@ -1385,21 +1384,20 @@ void StartMotorControlTask(void *argument)
       last_control_tick = now;
       Buttons_Service();
       motor_safety_poll();
-      /* Drain a bounded burst, with interrupts enabled between commands.
-       * Four chassis motors at 50 Hz already exceed the old 100 commands/s limit. */
-      for (uint8_t issued = 0U; issued < MOTOR_CMD_QUEUE_LENGTH; issued++)
+    }
+    /* Native ACK waiting yields to safety/ESTOP. Only terminal outcomes ACK. */
+    (void)motor_process_next_command(&cmd, &cmd_result);
+    if (motor_take_command_result(&cmd, &cmd_result))
+    {
+      /* Transport retains replies independently of telemetry and records
+       * overflow; a broken reply path must never block emergency stops. */
+      (void)CAN1_SendAck(cmd.seq, cmd.cmd, (cmd_result == HAL_OK) ? 0U : 1U);
+      if ((cmd.source == MOTOR_CMD_SOURCE_LOCAL_BUTTON) && (cmd_result != HAL_OK))
       {
-        if (motor_process_next_command(&cmd, &cmd_result) == 0U) { break; }
-        /* Transport retains replies independently of telemetry and records
-         * overflow; a broken reply path must never block emergency stops. */
-        (void)CAN1_SendAck(cmd.seq, cmd.cmd, (cmd_result == HAL_OK) ? 0U : 1U);
-        if ((cmd.source == MOTOR_CMD_SOURCE_LOCAL_BUTTON) && (cmd_result != HAL_OK))
-        {
-          CAN1_SendButtonEvent(ROS_BUTTON_EVENT_START,
-                               ROS_BUTTON_RESULT_EXECUTION_FAILED, cmd.seq);
-        }
-        can_transport_service();
+        CAN1_SendButtonEvent(ROS_BUTTON_EVENT_START,
+                             ROS_BUTTON_RESULT_EXECUTION_FAILED, cmd.seq);
       }
+      can_transport_service();
     }
     zdt_can_driver_timeout_poll();
     can_transport_service();
@@ -1437,7 +1435,7 @@ void StartStatusTask(void *argument)
 
     if (zdt_status_take_estop_event(&estop_event) == 1U)
     {
-      (void)motor_stop_all();
+      /* Parking is owned by motor_safety_poll; this task reports the event. */
       CAN1_SendEmergencyEvent(estop_event.motor_idx, estop_event.status_flags, estop_event.speed_rpm);
     }
 
@@ -1447,7 +1445,7 @@ void StartStatusTask(void *argument)
 
 /* USER CODE BEGIN Header_StartHeartbeatTask */
 /**
-  * @brief  Monitors ROS heartbeat and triggers stop on timeout.
+  * @brief  Reports ROS heartbeat timeout; the motor task owns parking.
   * @param  argument: Not used
   * @retval None
   */
@@ -1462,7 +1460,7 @@ void StartHeartbeatTask(void *argument)
     {
       if (timeout_latched == 0U)
       {
-        (void)motor_stop_all();
+        /* The motor task already owns the link-loss stop. */
         CAN1_SendEmergencyEvent(0xFFU, ROS_HEARTBEAT_TIMEOUT_FLAG, 0);
         timeout_latched = 1U;
       }
@@ -1493,7 +1491,6 @@ void StartSensorTask(void *argument)
     {
       if (distance_sensor_take_updated(i, &pending_samples[i]) == 1U)
       {
-        motor_update_distance(&pending_samples[i]);
         /* Replace unsent periodic data with the newest sample for this sensor. */
         sample_pending[i] = 1U;
       }

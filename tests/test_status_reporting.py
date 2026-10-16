@@ -27,6 +27,7 @@ class StatusReporting(unittest.TestCase):
         checks = r'''
 #define main existing_regression_main
 #include "can_regression.c"
+#include "distance_sensor.h"
 #undef main
 '''
         checks += encoder + r'''
@@ -92,14 +93,16 @@ int main(void)
     Motor_Command_t command;
     HAL_StatusTypeDef result;
     CAN1_RxCallback(header, (uint8_t[]){7,255,1,0,0,0,0,0});
-    assert(motor_process_next_command(&command, &result) && result == HAL_OK);
+    assert(motor_process_next_command(&command, &result) &&
+           motor_take_command_result(&command, &result) && result == HAL_OK);
     assert(motor_get_report_mask() == 1U);
     sent_count[0] = 0U;
     CAN1_SendStatus(2U);
     drain();
     assert(sent_count[0] == 1U && sent[0][0].data[0] == 1U && sent[0][0].data[1] == 2U);
     CAN1_RxCallback(header, (uint8_t[]){7,255,7,0,0,0,0,0});
-    assert(motor_process_next_command(&command, &result) && result == HAL_OK);
+    assert(motor_process_next_command(&command, &result) &&
+           motor_take_command_result(&command, &result) && result == HAL_OK);
     sent_count[0] = 0U;
     CAN1_SendStatus(2U);
     drain();
@@ -196,7 +199,8 @@ int main(void)
         if (tick % 80U == 0U) CAN1_SendStats();
         if (tick % 100U == 0U) {
             CAN1_RxCallback(header, (uint8_t[]){9U,255U,0U,0U,0U,0U,0U,0U});
-            assert(motor_process_next_command(&command, &result) && result == HAL_OK);
+            assert(motor_process_next_command(&command, &result) &&
+           motor_take_command_result(&command, &result) && result == HAL_OK);
             assert(CAN1_SendAck(command.seq, command.cmd, 0U) == HAL_OK);
         }
         free_mailboxes[0] = tick % 100U < 10U ? 0U : 3U;
@@ -235,9 +239,8 @@ int main(void)
             c.write_text(checks, encoding='utf-8')
             exe = tmp / 'check.exe'
             sources = ['can_transport', 'zdt_can_driver', 'motor_control', 'can_protocol',
-                       'zdt_status', 'stm32f4xx_it', 'chassis_collision']
+                       'zdt_status', 'stm32f4xx_it']
             subprocess.run([gcc, '-std=c11', '-Wall', '-Wextra', '-Werror',
-                            '-DCHASSIS_KINEMATICS_HEADER="chassis_test_config.h"',
                             '-include', str(ROOT / 'tests/support/hal_stub.h'),
                             '-I', str(ROOT / 'tests/support'), '-I', str(ROOT / 'tests'),
                             '-I', str(ROOT / 'Core/Inc'), str(c),

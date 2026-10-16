@@ -2,7 +2,7 @@
 
 #include "zdt_can_driver.h"
 #include "zdt_status.h"
-#include "chassis_collision.h"
+#include "chassis_safety_config.h"
 #include <string.h>
 
 Motor_State_t motors[MOTOR_COUNT] = {0};
@@ -21,192 +21,125 @@ static uint8_t motor_report_mask = MOTOR_REPORT_DEFAULT;
 static uint16_t motor_seq_counter = 0U;
 static Motor_CommStats_t motor_comm_stats = {0};
 
-typedef struct {
-    int32_t value;
-    uint32_t tick;
-    uint16_t speed_rpm;
-    uint8_t command, mode;
-} motion_slot_t;
-static motion_slot_t staged[MOTOR_COUNT];
-static uint8_t staged_mask;
-static float requested_rpm[MOTOR_COUNT];
-static uint8_t request_active, local_stop_pending;
-static uint32_t request_tick;
-static uint32_t active_wheel_tick[MOTOR_COUNT];
-static uint32_t velocity_tick[MOTOR_COUNT], position_tick[MOTOR_COUNT];
-static uint8_t velocity_seen[MOTOR_COUNT], position_seen[MOTOR_COUNT];
-static int64_t last_position_target[MOTOR_COUNT];
-static uint8_t position_target_seen[MOTOR_COUNT];
+static uint8_t staged_mask, local_stop_pending, safety_latched;
 static uint8_t status_poll_index, status_poll_type, speed_poll_index, poll_speed_next;
 
-static uint8_t independent_stop(void)
-{
-    if (motor_is_ros_timeout(CHASSIS_HEARTBEAT_TIMEOUT_MS)) return 1U;
-    for (uint8_t i = 0U; i < MOTOR_COUNT; ++i)
-        if (motors[i].fault_flag) return 1U;
-    return 0U;
-}
+/* One command at a time, correlated through native confirmation. Navigation
+ * and braking decisions belong to ROS; sync=0 never waits for other wheels. */
+static struct {
+    Motor_Command_t cmd;
+    HAL_StatusTypeDef result;
+    uint32_t tag;
+    uint8_t remaining, reason;
+    uint8_t native, slave, function;
+    uint8_t count, submitted;
+} execution;
+static Motor_Command_t deferred_command;
+static uint8_t deferred_pending;
+static uint32_t execution_tag;
+static const Motor_Command_t *diagnostic_command;
+static uint8_t failure_reason;
+volatile Motor_CommandDiagnostic_t motor_command_diagnostics[MOTOR_DIAGNOSTIC_LENGTH];
+volatile Motor_CommandDiagnostic_t motor_last_failure;
+volatile uint32_t motor_command_diagnostic_count;
 
-static uint8_t collision_blocks(const float rpm[MOTOR_COUNT])
+static void diagnose(const Motor_Command_t *cmd, uint8_t phase, HAL_StatusTypeDef status,
+                     uint8_t reason, uint8_t slave, uint8_t function, uint8_t native)
 {
-    chassis_velocity_t request, measured = {0};
-    float feedback[MOTOR_COUNT];
-    uint8_t fresh = 1U, moving = 0U;
-    uint8_t seen[MOTOR_COUNT];
-    uint32_t sample_tick[MOTOR_COUNT];
-    int32_t velocity[MOTOR_COUNT];
-    uint32_t now = HAL_GetTick();
+    if (cmd == NULL) return;
     uint32_t primask = __get_PRIMASK();
     __disable_irq();
-    memcpy(seen, velocity_seen, sizeof(seen));
-    memcpy(sample_tick, velocity_tick, sizeof(sample_tick));
-    for (uint8_t i = 0U; i < MOTOR_COUNT; ++i) velocity[i] = motors[i].current_velocity;
+    Motor_CommandDiagnostic_t d = {.tick=HAL_GetTick(),
+        .age_ms=HAL_GetTick()-cmd->received_tick, .seq=cmd->seq, .cmd=cmd->cmd,
+        .motor_idx=cmd->motor_idx, .phase=phase, .hal_status=(uint8_t)status,
+        .reason=reason, .slave=slave, .function=function, .native_result=native,
+        .staged_mask=staged_mask, .collision_mask=0U};
+    motor_command_diagnostics[motor_command_diagnostic_count++ % MOTOR_DIAGNOSTIC_LENGTH] = d;
+    if (phase == MOTOR_PHASE_FINAL && status != HAL_OK &&
+        (reason != MOTOR_REASON_CANCELED || motor_last_failure.reason == MOTOR_REASON_NONE)) motor_last_failure = d;
     if (primask == 0U) __enable_irq();
-    for (uint8_t i = 0U; i < MOTOR_COUNT; ++i) {
-        if (rpm[i] != 0.0f) moving = 1U;
-        if (!seen[i] || now - sample_tick[i] > CHASSIS_FEEDBACK_FRESH_MS) fresh = 0U;
-        feedback[i] = (float)velocity[i] * 0.1f; /* wire = 0.1 RPM */
+}
+
+static void driver_result(uint32_t tag, uint8_t slave, uint8_t function,
+                          HAL_StatusTypeDef status, uint8_t native, uint8_t canceled)
+{
+    if (execution.count && execution.tag == tag && execution.remaining) {
+        /* Stops issued during rejection must not confirm the rejected motion. */
+        uint8_t expected = execution.cmd.cmd == MOTOR_CMD_SET_VELOCITY ? ZDT_CMD_SPEED_MODE :
+            execution.cmd.cmd == MOTOR_CMD_SET_POSITION ? ZDT_CMD_POSITION_MODE :
+            execution.cmd.cmd == MOTOR_CMD_SYNC_START ? ZDT_CMD_SYNC_TRIGGER : ZDT_CMD_EMERGENCY_STOP;
+        if (function != expected) return;
+        if (status != HAL_OK && execution.result == HAL_OK) {
+            execution.result = status;
+            execution.reason = native ? MOTOR_REASON_NATIVE_REJECT :
+                status == HAL_TIMEOUT ? MOTOR_REASON_RESPONSE_TIMEOUT :
+                canceled ? MOTOR_REASON_CANCELED : MOTOR_REASON_TRANSMIT;
+        }
+        if (execution.result == HAL_OK || execution.function == 0U) {
+            execution.native = native;
+            execution.slave = slave;
+            execution.function = function;
+        } else if (native) {
+            execution.native = native;
+            execution.slave = slave;
+            execution.function = function;
+        }
+        execution.remaining--;
+        diagnose(&execution.cmd, MOTOR_PHASE_DRIVER, status, execution.reason, slave, function, native);
     }
-    if (local_stop_pending || independent_stop() || (moving && !CHASSIS_KINEMATICS_READY)) return 1U;
-    chassis_velocity_from_rpm(rpm, &request);
-    if (fresh) chassis_velocity_from_rpm(feedback, &measured);
-    return chassis_collision_check(&request, &measured, now) != 0U;
 }
 
-/* This stop is releasable: cancel the interrupted request, never emit an
- * emergency event or set sensor bit 0x20, and require a NEW valid request.
- * Keep the host queue so a newer safe lateral request can still execute. */
-static HAL_StatusTypeDef collision_stop(void)
+static uint8_t motion_allowed(void)
 {
-    zdt_can_driver_cancel();
-    staged_mask = request_active = 0U;
-    memset(requested_rpm, 0, sizeof(requested_rpm));
-    memset(position_target_seen, 0, sizeof(position_target_seen));
-    for (uint8_t i = 0U; i < MOTOR_COUNT; ++i) motors[i].target_velocity = 0;
-    HAL_StatusTypeDef status = zdt_motor_stop(0U, ZDT_SYNC_IMMEDIATE);
-    local_stop_pending = status != HAL_OK;
-    if (status != HAL_OK) motor_record_stop_failure();
-    return status;
-}
-
-void motor_update_distance(const distance_sensor_sample_t *sample)
-{
-    chassis_collision_update_range(sample);
+    if (local_stop_pending) { failure_reason=MOTOR_REASON_STOP_PENDING; return 0U; }
+    if (motor_is_ros_timeout(CHASSIS_HEARTBEAT_TIMEOUT_MS)) {
+        failure_reason=MOTOR_REASON_HEARTBEAT;
+        return 0U;
+    }
+    for (uint8_t i=0U; i<MOTOR_COUNT; ++i) {
+        if (motors[i].fault_flag) { failure_reason=MOTOR_REASON_FAULT; return 0U; }
+    }
+    return 1U;
 }
 
 void motor_safety_poll(void)
 {
-    /* Called by the motor task, which owns request state. Keep the potentially
-     * expensive float/geometry test outside PRIMASK so TIM6 and CAN IRQs run. */
-    uint8_t expired = HAL_GetTick() - request_tick > CHASSIS_COMMAND_TIMEOUT_MS;
-    for (uint8_t i = 0U; i < MOTOR_COUNT; ++i)
-        if (requested_rpm[i] != 0.0f && HAL_GetTick() - active_wheel_tick[i] > CHASSIS_COMMAND_TIMEOUT_MS)
-            expired = 1U;
-    if (request_active && (expired || independent_stop())) {
-        (void)motor_stop_all();
-    } else if (local_stop_pending || (request_active && collision_blocks(requested_rpm))) {
-        (void)collision_stop();
-    }
+    /* The motor task owns all autonomous parking. Stop once per new link/fault
+     * condition, and retry only a stop that could not be submitted. */
+    uint8_t conditions = motor_is_ros_timeout(CHASSIS_HEARTBEAT_TIMEOUT_MS) ? 1U : 0U;
+    for (uint8_t i=0U; i<MOTOR_COUNT; ++i)
+        if (motors[i].fault_flag) conditions |= 2U;
+    uint8_t new_condition = conditions & (uint8_t)~safety_latched;
+    safety_latched = conditions;
+    if (new_condition || local_stop_pending) (void)motor_stop_all();
 }
 
-static uint8_t slot_to_speed(uint8_t idx, const motion_slot_t *slot, float *rpm, int64_t *target)
-{
-    if (slot->command == MOTOR_CMD_SET_VELOCITY) {
-        int32_t value = slot->value;
-        if (value > 3000) value = 3000;
-        if (value < -3000) value = -3000;
-        *rpm = (float)value;
-        return 1U;
-    }
-    /* Position protocol is unchanged (pulses -> 0.1 degree by 9/8).
-     * Absolute and previous-target moves need a fresh position reference;
-     * guessing the sign from the command value is unsafe. */
-    int64_t delta = ((int64_t)slot->value * 9) / 8;
-    uint8_t fresh = position_seen[idx] && HAL_GetTick() - position_tick[idx] <= CHASSIS_FEEDBACK_FRESH_MS;
-    int64_t current = motors[idx].position_feedback;
-    if (slot->mode > 2U) return 0U;
-    if (slot->mode == 2U) {
-        *target = current + delta;
-    } else {
-        if (!fresh) return 0U;
-        if (slot->mode == 0U && !position_target_seen[idx]) return 0U;
-        *target = slot->mode == 1U ? delta :
-                  last_position_target[idx] + delta;
-        delta = *target - current;
-    }
-    *rpm = delta > 0 ? (float)slot->speed_rpm :
-           delta < 0 ? -(float)slot->speed_rpm : 0.0f;
-    return 1U;
-}
-
-static void remember_request(const float rpm[MOTOR_COUNT])
-{
-    memcpy(requested_rpm, rpm, sizeof(requested_rpm));
-    request_active = 0U;
-    for (uint8_t i = 0U; i < MOTOR_COUNT; ++i) {
-        if (rpm[i] != 0.0f) request_active = 1U;
-    }
-    request_tick = HAL_GetTick();
-}
-
-/* idx=0xFF applies a broadcast as ONE candidate body request. Cache writes
- * retain existing wire/ACK semantics, but cannot change the running request.
- * Only a complete, fresh four-wheel group is checked at SYNC_START. */
 static HAL_StatusTypeDef submit_motion(uint8_t idx, int32_t value, uint8_t accel,
-                                       uint8_t mode, uint8_t sync, uint8_t command,
-                                       uint32_t received_tick)
+                                       uint8_t mode, uint8_t sync, uint8_t command)
 {
-    if (idx >= MOTOR_COUNT && idx != 0xFFU) return HAL_ERROR;
-    if (command == MOTOR_CMD_SET_POSITION && mode > 2U) return HAL_ERROR;
-    float candidate[MOTOR_COUNT];
-    int64_t targets[MOTOR_COUNT] = {0};
-    motion_slot_t slot = {.value=value, .tick=received_tick, .command=command, .mode=mode};
-    HAL_StatusTypeDef status = HAL_OK;
-    memcpy(candidate, requested_rpm, sizeof(candidate));
-    if (!sync) {
-        for (uint8_t i = 0U; i < MOTOR_COUNT; ++i) {
-            if (idx != 0xFFU && idx != i) continue;
-            slot.speed_rpm = motor_speed_profile[i];
-            if (!slot_to_speed(i, &slot, &candidate[i], &targets[i])) { status = HAL_ERROR; break; }
-        }
-        if (status != HAL_OK || collision_blocks(candidate)) {
-            (void)collision_stop();
-            status = HAL_ERROR;
-            goto done;
-        }
-        /* Do not leave a stale partial sync group available for a later start. */
-        if (staged_mask) { zdt_can_driver_cancel(); staged_mask = 0U; }
+    if ((idx >= MOTOR_COUNT && idx != 0xFFU) ||
+        (command == MOTOR_CMD_SET_POSITION && mode > 2U)) {
+        failure_reason = MOTOR_REASON_ARGUMENT;
+        return HAL_ERROR;
     }
-    for (uint8_t i = 0U; i < MOTOR_COUNT; ++i) {
+    if (!motion_allowed()) return HAL_ERROR;
+    if (sync && staged_mask == (1U << MOTOR_COUNT)-1U) staged_mask = 0U;
+    if (!sync) staged_mask = 0U; /* a later start must not revive old cache */
+    for (uint8_t i=0U; i<MOTOR_COUNT; ++i) {
         if (idx != 0xFFU && idx != i) continue;
-        status = command == MOTOR_CMD_SET_VELOCITY ?
+        if (!motion_allowed()) return HAL_ERROR;
+        HAL_StatusTypeDef status = command == MOTOR_CMD_SET_VELOCITY ?
             zdt_motor_set_speed(motor_slave_addr[i], value, accel, sync) :
             zdt_motor_set_position(motor_slave_addr[i], value, motor_speed_profile[i], accel, mode, sync);
-        if (status != HAL_OK) { (void)collision_stop(); break; }
+        if (status != HAL_OK) { failure_reason=MOTOR_REASON_SUBMIT; return status; }
         motor_accel_profile[i] = accel;
-        /* Keep the existing feedback meaning: target mirrors the accepted
-         * command, including a driver-cache write. The safety request is
-         * tracked independently and only becomes active at sync start. */
         if (command == MOTOR_CMD_SET_VELOCITY) {
             int32_t clamped = value > 3000 ? 3000 : value < -3000 ? -3000 : value;
             motors[i].target_velocity = clamped * 10;
         } else motors[i].target_position = value;
-        if (!sync) active_wheel_tick[i] = received_tick;
-        if (sync) {
-            slot.speed_rpm = motor_speed_profile[i];
-            staged[i] = slot;
-            staged_mask |= (uint8_t)(1U << i);
-        }
-        else if (command == MOTOR_CMD_SET_POSITION) {
-            motors[i].target_position = value;
-            last_position_target[i] = targets[i];
-            position_target_seen[i] = mode != 2U ||
-                (position_seen[i] && HAL_GetTick() - position_tick[i] <= CHASSIS_FEEDBACK_FRESH_MS);
-        } else position_target_seen[i] = 0U;
+        if (sync) staged_mask |= (uint8_t)(1U << i);
     }
-    if (status == HAL_OK && !sync) remember_request(candidate);
-done:
-    return status;
+    return HAL_OK;
 }
 
 void motor_control_init(void)
@@ -222,14 +155,15 @@ void motor_control_init(void)
     ros_heartbeat_seen = 0U;
     urgent_stop_pending = 0U;
     local_sync_start_pending = 0U;
-    staged_mask = request_active = local_stop_pending = 0U;
-    memset(requested_rpm, 0, sizeof(requested_rpm));
-    memset(velocity_seen, 0, sizeof(velocity_seen));
-    memset(position_seen, 0, sizeof(position_seen));
-    memset(position_target_seen, 0, sizeof(position_target_seen));
+    staged_mask = local_stop_pending = safety_latched = 0U;
     status_poll_index = status_poll_type = speed_poll_index = 0U;
     poll_speed_next = 1U;
-    chassis_collision_init();
+    memset(&execution, 0, sizeof(execution));
+    deferred_pending = 0U;
+    execution_tag = 0U;
+    diagnostic_command = NULL;
+    motor_command_diagnostic_count = 0U;
+    motor_last_failure = (Motor_CommandDiagnostic_t){0};
     zdt_status_init();
 }
 
@@ -270,6 +204,7 @@ HAL_StatusTypeDef motor_configure_addresses(const uint8_t *addr_list, uint8_t co
     for (i = 0U; i < MOTOR_COUNT; i++) {
         motor_slave_addr[i] = addr_list[i];
     }
+    zdt_set_sync_response_slave(addr_list[0]);
     if (primask == 0U) { __enable_irq(); }
     return HAL_OK;
 }
@@ -321,6 +256,8 @@ uint8_t motor_enqueue_command_from_isr(const Motor_Command_t *cmd)
     Motor_Command_t stamped = *cmd;
     stamped.received_tick = HAL_GetTick();
     status = osMessageQueuePut(motor_cmd_queue, &stamped, 0U, 0U);
+    diagnose(&stamped, MOTOR_PHASE_RECEIVED, status == osOK ? HAL_OK : HAL_BUSY,
+             status == osOK ? MOTOR_REASON_NONE : MOTOR_REASON_SUBMIT, 0U, 0U, 0U);
     return (status == osOK) ? 1U : 0U;
 }
 
@@ -387,33 +324,111 @@ uint16_t motor_allocate_cmd_seq(void)
     return seq;
 }
 
-uint8_t motor_process_next_command(Motor_Command_t *cmd, HAL_StatusTypeDef *result)
+static uint8_t fetch_ordered_command(Motor_Command_t *cmd)
 {
-    uint8_t processed;
-    uint32_t primask;
-    if ((cmd == NULL) || (result == NULL)) return 0U;
-
-    primask = __get_PRIMASK();
+    uint32_t primask = __get_PRIMASK();
     __disable_irq();
-    processed = motor_fetch_command(cmd, 0U);
-    if ((processed == 0U) && (local_sync_start_pending != 0U)) {
+    uint8_t fetched;
+    if (deferred_pending && !urgent_stop_pending) {
+        *cmd = deferred_command;
+        deferred_pending = 0U;
+        fetched = 1U;
+    } else fetched = motor_fetch_command(cmd, 0U);
+    if (!fetched && local_sync_start_pending) {
         *cmd = local_sync_start;
         local_sync_start_pending = 0U;
-        processed = 1U;
+        fetched = 1U;
     }
     if (primask == 0U) __enable_irq();
+    return fetched;
+}
 
-    if (processed != 0U) {
-        if ((cmd->cmd == MOTOR_CMD_SET_VELOCITY || cmd->cmd == MOTOR_CMD_SET_POSITION ||
-             cmd->cmd == MOTOR_CMD_SYNC_START) &&
-            HAL_GetTick() - cmd->received_tick > CHASSIS_COMMAND_TIMEOUT_MS) {
-            (void)motor_stop_all();
-            *result = HAL_TIMEOUT;
-        } else {
-            *result = motor_apply_command(cmd);
-        }
+static void submit_execution(void)
+{
+    Motor_Command_t *cmd = &execution.cmd;
+    failure_reason = MOTOR_REASON_NONE;
+    execution.submitted = 1U;
+    if ((cmd->cmd == MOTOR_CMD_SET_VELOCITY || cmd->cmd == MOTOR_CMD_SET_POSITION ||
+         cmd->cmd == MOTOR_CMD_SYNC_START) &&
+        HAL_GetTick()-cmd->received_tick > CHASSIS_COMMAND_TIMEOUT_MS) {
+        execution.result = HAL_TIMEOUT;
+        execution.reason = MOTOR_REASON_QUEUE_EXPIRED;
+        diagnose(cmd, MOTOR_PHASE_VALIDATE, HAL_TIMEOUT, MOTOR_REASON_QUEUE_EXPIRED, 0U, 0U, 0U);
+        return; /* stale input is rejected, never used as a parking decision */
     }
-    return processed;
+    uint8_t tracked = cmd->cmd == MOTOR_CMD_SET_VELOCITY || cmd->cmd == MOTOR_CMD_SET_POSITION ||
+                      cmd->cmd == MOTOR_CMD_SYNC_START || cmd->cmd == MOTOR_CMD_ESTOP;
+    if (++execution_tag == 0U) ++execution_tag;
+    execution.tag = execution_tag;
+    execution.remaining = tracked ?
+        ((cmd->motor_idx == 0xFFU && (cmd->cmd == MOTOR_CMD_SET_VELOCITY || cmd->cmd == MOTOR_CMD_SET_POSITION)) ? MOTOR_COUNT : 1U) : 0U;
+    diagnostic_command = cmd;
+    zdt_set_command_context(execution.tag, tracked ? driver_result : NULL);
+    HAL_StatusTypeDef status = motor_apply_command(cmd);
+    zdt_set_command_context(0U, NULL);
+    diagnostic_command = NULL;
+    if (status != HAL_OK) {
+        execution.remaining = 0U;
+        execution.result = status;
+        execution.reason = failure_reason ? failure_reason : MOTOR_REASON_ARGUMENT;
+    }
+}
+
+uint8_t motor_process_next_command(Motor_Command_t *cmd, HAL_StatusTypeDef *result)
+{
+    if (cmd == NULL || result == NULL) return 0U;
+    /* ESTOP can interrupt an in-flight native transaction. */
+    if (urgent_stop_pending && execution.count) {
+        Motor_Command_t stop = urgent_stop;
+        (void)motor_stop_all();
+        deferred_command = stop;
+        deferred_pending = 1U;
+    }
+    if (execution.submitted) return 0U;
+    if (!fetch_ordered_command(cmd)) return 0U;
+    execution.count = 1U;
+    execution.cmd = *cmd;
+    *result = HAL_BUSY; /* submitted/pending; take_result owns the terminal ACK */
+    diagnose(cmd, MOTOR_PHASE_COLLECT, HAL_BUSY, MOTOR_REASON_NONE, 0U, 0U, 0U);
+    submit_execution();
+    return 1U;
+}
+
+uint8_t motor_take_command_result(Motor_Command_t *cmd, HAL_StatusTypeDef *result)
+{
+    if (!execution.submitted || cmd == NULL || result == NULL) return 0U;
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    if (execution.remaining && execution.cmd.cmd != MOTOR_CMD_ESTOP &&
+        HAL_GetTick()-execution.cmd.received_tick > CHASSIS_COMMAND_TIMEOUT_MS) {
+        execution.result = HAL_TIMEOUT;
+        execution.reason = MOTOR_REASON_RESPONSE_TIMEOUT;
+    }
+    uint8_t reason = execution.reason;
+    if (execution.result != HAL_OK &&
+        (reason == MOTOR_REASON_SUBMIT || reason == MOTOR_REASON_NATIVE_REJECT ||
+         reason == MOTOR_REASON_RESPONSE_TIMEOUT || reason == MOTOR_REASON_TRANSMIT)) {
+        /* A partially executed/unknown motion is a low-level safety failure.
+         * Validation rejects alone never broadcast a stop. */
+        (void)motor_stop_all();
+        execution.remaining = 0U;
+    }
+    if (execution.remaining) {
+        if (primask == 0U) __enable_irq();
+        return 0U;
+    }
+    *cmd = execution.cmd;
+    *result = execution.result;
+    motor_comm_stats.last_seq = cmd->seq;
+    motor_comm_stats.last_cmd = cmd->cmd;
+    motor_comm_stats.last_result = *result == HAL_OK ? 0U : 1U;
+    if (*result == HAL_OK) motor_comm_stats.exec_ok_count++;
+    else motor_comm_stats.exec_fail_count++;
+    diagnose(cmd, MOTOR_PHASE_FINAL, *result, execution.reason,
+             execution.slave, execution.function, execution.native);
+    memset(&execution, 0, sizeof(execution));
+    if (primask == 0U) __enable_irq();
+    return 1U;
 }
 
 void motor_record_rx_result(uint8_t enqueue_ok)
@@ -432,7 +447,7 @@ HAL_StatusTypeDef motor_set_velocity(uint8_t idx, int32_t vel)
 
 HAL_StatusTypeDef motor_set_velocity_ex(uint8_t idx, int32_t vel, uint8_t accel_level, uint8_t sync_flag)
 {
-    return submit_motion(idx, vel, accel_level, 0U, sync_flag, MOTOR_CMD_SET_VELOCITY, HAL_GetTick());
+    return submit_motion(idx, vel, accel_level, 0U, sync_flag, MOTOR_CMD_SET_VELOCITY);
 }
 
 HAL_StatusTypeDef motor_set_position(uint8_t idx, int32_t pos)
@@ -443,7 +458,7 @@ HAL_StatusTypeDef motor_set_position(uint8_t idx, int32_t pos)
 
 HAL_StatusTypeDef motor_set_position_ex(uint8_t idx, int32_t pos, uint8_t accel_level, uint8_t mode, uint8_t sync_flag)
 {
-    return submit_motion(idx, pos, accel_level, mode, sync_flag, MOTOR_CMD_SET_POSITION, HAL_GetTick());
+    return submit_motion(idx, pos, accel_level, mode, sync_flag, MOTOR_CMD_SET_POSITION);
 }
 
 void motor_set_speed_profile(uint8_t idx, uint16_t speed_rpm, uint8_t accel_level)
@@ -462,40 +477,20 @@ void motor_set_speed_profile(uint8_t idx, uint16_t speed_rpm, uint8_t accel_leve
 
 HAL_StatusTypeDef motor_trigger_sync_motion(void)
 {
-    float rpm[MOTOR_COUNT];
-    int64_t targets[MOTOR_COUNT] = {0};
-    HAL_StatusTypeDef status = HAL_ERROR;
-    if (staged_mask != (1U << MOTOR_COUNT) - 1U) goto reject;
-    for (uint8_t i = 0U; i < MOTOR_COUNT; ++i) {
-        if (HAL_GetTick() - staged[i].tick > CHASSIS_COMMAND_TIMEOUT_MS ||
-            !slot_to_speed(i, &staged[i], &rpm[i], &targets[i])) goto reject;
+    if (!motion_allowed()) return HAL_ERROR;
+    if (staged_mask != (1U << MOTOR_COUNT)-1U) {
+        failure_reason = MOTOR_REASON_CACHE_INCOMPLETE;
+        return HAL_ERROR; /* report only; ROS decides whether to stop */
     }
-    if (collision_blocks(rpm)) goto reject;
-    status = zdt_trigger_sync_start();
-    if (status != HAL_OK) goto reject;
-    remember_request(rpm);
-    for (uint8_t i = 0U; i < MOTOR_COUNT; ++i) {
-        active_wheel_tick[i] = staged[i].tick;
-        position_target_seen[i] = staged[i].command == MOTOR_CMD_SET_POSITION &&
-            (staged[i].mode != 2U || (position_seen[i] &&
-             HAL_GetTick() - position_tick[i] <= CHASSIS_FEEDBACK_FRESH_MS));
-        if (staged[i].command == MOTOR_CMD_SET_POSITION) {
-            last_position_target[i] = targets[i];
-            motors[i].target_position = staged[i].value;
-        }
-    }
-    staged_mask = 0U;
-    goto done;
-reject:
-    (void)collision_stop();
-done:
+    HAL_StatusTypeDef status = zdt_trigger_sync_start();
+    if (status == HAL_OK) staged_mask = 0U;
+    else failure_reason = MOTOR_REASON_SUBMIT;
     return status;
 }
 
 HAL_StatusTypeDef motor_send_multi_cmd(const uint8_t *cmd_stream, uint16_t stream_len)
 {
-    /* Opaque AA motion cannot supply an atomic, decoded chassis request.
-     * Use the existing per-wheel cache + SYNC_START interface instead. */
+    /* Opaque AA has no host-command/native-result correlation. Use 0x100. */
     (void)cmd_stream; (void)stream_len;
     return HAL_ERROR;
 }
@@ -516,9 +511,8 @@ HAL_StatusTypeDef motor_stop_all(void)
     uint32_t primask = __get_PRIMASK();
     __disable_irq();
 
-    request_active = staged_mask = 0U;
-    memset(requested_rpm, 0, sizeof(requested_rpm));
-    memset(position_target_seen, 0, sizeof(position_target_seen));
+    staged_mask = 0U;
+    deferred_pending = 0U;
     /* Remove older motion and reads before enqueuing stop commands. */
     zdt_can_driver_cancel();
     urgent_stop_pending = 0U;
@@ -563,8 +557,6 @@ static void motor_position_read_cb(uint8_t slave, int32_t pos)
     }
 
     motors[idx].position_feedback = pos;
-    position_tick[idx] = HAL_GetTick();
-    position_seen[idx] = 1U;
 }
 
 static void motor_velocity_read_cb(uint8_t slave, int32_t vel)
@@ -577,8 +569,6 @@ static void motor_velocity_read_cb(uint8_t slave, int32_t vel)
     }
 
     motors[idx].current_velocity = vel;
-    velocity_tick[idx] = HAL_GetTick();
-    velocity_seen[idx] = 1U;
     zdt_status_update_speed(idx, vel);
 }
 
@@ -592,9 +582,8 @@ void motor_update_status(uint8_t max_requests)
     }
 
     while ((issued < max_requests) && (zdt_can_driver_is_busy() == 0U)) {
-        /* At one completed query / 20 ms, velocities recur every 160 ms,
-         * allowing a fresh four-wheel snapshot within the 200 ms limit.
-         * Missing feedback is ignored; driver read retries remain bounded. */
+        /* Preserve feedback cadence. ROS evaluates freshness and body motion;
+         * a background read timeout alone does not park the chassis. */
         if (poll_speed_next) status = zdt_read_realtime_speed(motor_slave_addr[speed_poll_index], motor_velocity_read_cb);
         else if (status_poll_type == 0U) status = zdt_read_motor_status(motor_slave_addr[status_poll_index], motor_status_read_cb);
         else status = zdt_read_realtime_position(motor_slave_addr[status_poll_index], motor_position_read_cb);
@@ -630,8 +619,7 @@ HAL_StatusTypeDef motor_apply_command(const Motor_Command_t *cmd)
 
     switch (cmd->cmd) {
         case MOTOR_CMD_SET_VELOCITY:
-            status = submit_motion(cmd->motor_idx, cmd->value, cmd->param0, 0U, cmd->param1, cmd->cmd,
-                                   cmd->received_tick);
+            status = submit_motion(cmd->motor_idx, cmd->value, cmd->param0, 0U, cmd->param1, cmd->cmd);
             break;
 
         case MOTOR_CMD_ESTOP:
@@ -641,7 +629,7 @@ HAL_StatusTypeDef motor_apply_command(const Motor_Command_t *cmd)
         case MOTOR_CMD_SET_POSITION:
             status = submit_motion(cmd->motor_idx, cmd->value, cmd->param0,
                                    (uint8_t)(cmd->param1 & 0x03U),
-                                   (uint8_t)((cmd->param1 >> 2) & 1U), cmd->cmd, cmd->received_tick);
+                                   (uint8_t)((cmd->param1 >> 2) & 1U), cmd->cmd);
             break;
 
         case MOTOR_CMD_SET_PROFILE:
@@ -689,13 +677,7 @@ HAL_StatusTypeDef motor_apply_command(const Motor_Command_t *cmd)
     }
 
 record_result:
-    if (status == HAL_OK) {
-        motor_comm_stats.exec_ok_count++;
-        motor_comm_stats.last_result = 0U;
-    } else {
-        motor_comm_stats.exec_fail_count++;
-        motor_comm_stats.last_result = 1U;
-    }
+    diagnose(diagnostic_command, MOTOR_PHASE_SUBMIT, status, failure_reason, 0U, 0U, 0U);
 
     return status;
 }

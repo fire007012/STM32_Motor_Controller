@@ -1,7 +1,7 @@
 static CAN_TypeDef can_registers[2];
 CAN_HandleTypeDef hcan1 = {0U, &can_registers[0]}, hcan2 = {1U, &can_registers[1]};
 uint32_t test_primask;
-static unsigned free_slots, sent_count, task_cycle, stop_count, range_updates;
+static unsigned free_slots, sent_count, task_cycle, stop_count;
 static CAN_TxFrame_t sent[512];
 static jmp_buf task_done;
 
@@ -29,8 +29,6 @@ HAL_StatusTypeDef HAL_CAN_AddTxMessage(CAN_HandleTypeDef *bus,
 HAL_StatusTypeDef motor_stop_all(void)
 { stop_count++; return HAL_OK; }
 
-void motor_update_distance(const distance_sensor_sample_t *sample)
-{ assert(sample->sensor_id < DISTANCE_SENSOR_COUNT); range_updates++; }
 
 static void fill_queue(unsigned count)
 {
@@ -148,7 +146,7 @@ void osDelay(uint32_t ms)
         ready_status = 0U;
         break;
     case 10U:
-        assert(stop_count == 0U && range_updates > 0U);
+        assert(stop_count == 0U);
         assert(sensors[0].sample.status == DISTANCE_SENSOR_STATUS_VALID);
         sensors[0].initialized = 0U;
         sensors[DIST_SENSOR_REAR].initialized = 1U;
