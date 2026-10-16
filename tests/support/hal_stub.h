@@ -8,7 +8,7 @@
 
 typedef enum { HAL_OK, HAL_ERROR, HAL_BUSY, HAL_TIMEOUT } HAL_StatusTypeDef;
 typedef enum { HAL_CAN_STATE_READY, HAL_CAN_STATE_LISTENING } HAL_CAN_StateTypeDef;
-typedef struct { uint32_t TSR, MCR, BTR, ESR, RF0R; } CAN_TypeDef;
+typedef struct { uint32_t TSR, MCR, BTR, ESR, RF0R, MSR; } CAN_TypeDef;
 typedef struct { unsigned index; CAN_TypeDef *Instance; } CAN_HandleTypeDef;
 typedef struct { unsigned unused; } TIM_HandleTypeDef;
 typedef struct {
@@ -33,6 +33,7 @@ typedef struct {
 #define CAN_ESR_EWGF (1UL << 0)
 #define CAN_ESR_EPVF (1UL << 1)
 #define CAN_RF0R_FOVR0 (1UL << 4)
+#define CAN_MSR_ERRI (1UL << 2)
 #define CAN_RX_FIFO0 0U
 
 extern uint32_t test_primask;

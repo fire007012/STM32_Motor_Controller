@@ -10,12 +10,14 @@ typedef struct {
     uint8_t latest;
 } CAN_QueuedFrame_t;
 
+enum { CAN_TX_NORMAL, CAN_TX_REPLY, CAN_TX_FORWARD };
+
 typedef struct {
     can_tx_complete_cb_t callback;
     uint32_t token;
     uint32_t started;
     uint8_t active;
-    uint8_t reply;
+    uint8_t source;
 } CAN_InFlight_t;
 
 typedef struct {
@@ -38,6 +40,12 @@ static struct {
     uint8_t head, tail, count;
 } replies;
 
+static struct {
+    CAN_TxFrame_t frames[CAN_FORWARD_QUEUE_LENGTH];
+    uint32_t enqueued[CAN_FORWARD_QUEUE_LENGTH];
+    uint8_t head, tail, count;
+} forwards;
+
 volatile CAN_BusDiagnostics_t can_bus_diagnostics[2];
 
 static void snapshot(CAN_TxQueue_t *queue)
@@ -45,12 +53,13 @@ static void snapshot(CAN_TxQueue_t *queue)
     if (queue->bus == NULL) return;
     volatile CAN_BusDiagnostics_t *diag = &can_bus_diagnostics[queue - queues];
     diag->tick = HAL_GetTick();
-    diag->format_version = 2U;
+    diag->format_version = 3U;
     diag->mcr = queue->bus->Instance->MCR;
     diag->btr = queue->bus->Instance->BTR;
     diag->esr = queue->bus->Instance->ESR;
     diag->tsr = queue->bus->Instance->TSR;
     diag->reply_pending = queue == &queues[0] ? replies.count : 0U;
+    diag->forward_pending = queue == &queues[0] ? forwards.count : 0U;
     diag->tx_pending = queue->count;
     diag->tx_failures = queue->failures;
     if (queue->count > diag->tx_high_water) diag->tx_high_water = queue->count;
@@ -101,6 +110,7 @@ void can_transport_init(CAN_HandleTypeDef *can1, CAN_HandleTypeDef *can2)
 {
     (void)memset(queues, 0, sizeof(queues));
     (void)memset(&replies, 0, sizeof(replies));
+    (void)memset(&forwards, 0, sizeof(forwards));
     for (uint8_t i = 0U; i < 2U; i++) {
         can_bus_diagnostics[i] = (CAN_BusDiagnostics_t){0};
     }
@@ -138,6 +148,30 @@ HAL_StatusTypeDef can_transport_send_reply(CAN_HandleTypeDef *bus, const CAN_TxH
     replies.tail = (uint8_t)((replies.tail + 1U) % CAN_REPLY_QUEUE_LENGTH);
     replies.count++;
     can_bus_diagnostics[0].reply_pending = replies.count;
+    exit_critical(primask);
+    return HAL_OK;
+}
+
+HAL_StatusTypeDef can_transport_forward(CAN_HandleTypeDef *bus, const CAN_TxHeaderTypeDef *header,
+                                       const uint8_t data[8])
+{
+    CAN_TxQueue_t *queue = find_queue(bus);
+    if ((queue != &queues[0]) || !valid_header(header) || (data == NULL)) return HAL_ERROR;
+    uint32_t primask = enter_critical();
+    if (forwards.count == CAN_FORWARD_QUEUE_LENGTH) {
+        queue->failures++;
+        can_bus_diagnostics[0].queue_full++;
+        can_bus_diagnostics[0].forward_overflow++;
+        exit_critical(primask);
+        return HAL_BUSY;
+    }
+    CAN_TxFrame_t *slot = &forwards.frames[forwards.tail];
+    *slot = (CAN_TxFrame_t){.header = *header};
+    if (header->RTR == CAN_RTR_DATA) (void)memcpy(slot->data, data, header->DLC);
+    forwards.enqueued[forwards.tail] = HAL_GetTick();
+    forwards.tail = (uint8_t)((forwards.tail + 1U) % CAN_FORWARD_QUEUE_LENGTH);
+    forwards.count++;
+    can_bus_diagnostics[0].forward_pending = forwards.count;
     exit_critical(primask);
     return HAL_OK;
 }
@@ -214,7 +248,7 @@ HAL_StatusTypeDef can_transport_send_latest_batch(CAN_HandleTypeDef *bus, const 
     uint32_t primask = enter_critical();
     uint8_t head_in_flight = 0U;
     for (uint8_t m = 0U; m < 3U; m++) {
-        if (queue->in_flight[m].active && !queue->in_flight[m].reply) head_in_flight = 1U;
+        if (queue->in_flight[m].active && queue->in_flight[m].source == CAN_TX_NORMAL) head_in_flight = 1U;
     }
     for (uint8_t i = 0U; i < count; i++) {
         positions[i] = CAN_TX_QUEUE_LENGTH;
@@ -306,7 +340,7 @@ void can_transport_poll_completions(CAN_HandleTypeDef *bus)
                          * was in hardware. After arbitration loss the old
                          * copy is unsent again; keep only its newer successor. */
                         CAN_QueuedFrame_t *head = &queue->frames[queue->head];
-                        if (!slot->reply && head->latest) {
+                        if (slot->source == CAN_TX_NORMAL && head->latest) {
                             for (uint8_t n = 1U; n < queue->count; n++) {
                                 CAN_QueuedFrame_t *next = &queue->frames[(queue->head + n) % CAN_TX_QUEUE_LENGTH];
                                 if (next->latest && same_stream(&head->frame, head->latest_key,
@@ -324,14 +358,20 @@ void can_transport_poll_completions(CAN_HandleTypeDef *bus)
                         diag->tx_error++;
                         slot->callback = NULL;
                         ros_tx_failed(queue);
-                        if (slot->reply != 0U) diag->reply_retries++;
+                        if (slot->source == CAN_TX_REPLY) diag->reply_retries++;
+                        if (slot->source == CAN_TX_FORWARD) diag->forward_retries++;
                     } else {
                         diag->tx_ok++;
                     }
-                    if (slot->reply != 0U) {
+                    if (slot->source == CAN_TX_REPLY) {
                         if ((result & CAN_TSR_TXOK0) != 0U) {
                             replies.head = (uint8_t)((replies.head + 1U) % CAN_REPLY_QUEUE_LENGTH);
                             replies.count--;
+                        }
+                    } else if (slot->source == CAN_TX_FORWARD) {
+                        if ((result & CAN_TSR_TXOK0) != 0U) {
+                            forwards.head = (uint8_t)((forwards.head + 1U) % CAN_FORWARD_QUEUE_LENGTH);
+                            forwards.count--;
                         }
                     } else {
                         queue->head = (uint8_t)((queue->head + 1U) % CAN_TX_QUEUE_LENGTH);
@@ -347,14 +387,27 @@ void can_transport_poll_completions(CAN_HandleTypeDef *bus)
                     }
                 }
                 complete_slot(slot);
+            } else if ((queue == &queues[0]) && (slot->source == CAN_TX_FORWARD) &&
+                       ((HAL_GetTick() - forwards.enqueued[forwards.head]) >= CAN_FORWARD_LIFETIME_MS)) {
+                /* A frame may enter hardware just before its reception
+                 * deadline. Cancel it there too, not only when still queued. */
+                (void)HAL_CAN_AbortTxRequest(bus, 1UL << i);
+                slot->active = 0U;
+                slot->callback = NULL;
+                forwards.head = (uint8_t)((forwards.head + 1U) % CAN_FORWARD_QUEUE_LENGTH);
+                forwards.count--;
+                diag->forward_expired++;
+                ros_tx_failed(queue);
+                break;
             } else if ((queue == &queues[0]) &&
                        ((HAL_GetTick() - slot->started) >= CAN_ROS_TX_TIMEOUT_MS)) {
                 /* A bus that never becomes idle (or bus-off) can leave even
                  * a single-shot request pending. Cancel stale ROS traffic. */
                 diag->tx_timeouts++;
-                if (slot->reply != 0U) diag->reply_retries++;
+                if (slot->source == CAN_TX_REPLY) diag->reply_retries++;
+                if (slot->source == CAN_TX_FORWARD) diag->forward_retries++;
                 diag->timeout_discarded += queue->count;
-                /* Preserve bounded reply retries, discard stale telemetry. */
+                /* Preserve bounded replies/native feedback, discard telemetry. */
                 abort_requests(queue);
                 ros_tx_failed(queue);
                 break;
@@ -397,11 +450,19 @@ void can_transport_service(void)
                 queue->failures++;
                 can_bus_diagnostics[0].reply_expired++;
             }
+            while ((forwards.count != 0U) &&
+                   ((HAL_GetTick() - forwards.enqueued[forwards.head]) >= CAN_FORWARD_LIFETIME_MS)) {
+                forwards.head = (uint8_t)((forwards.head + 1U) % CAN_FORWARD_QUEUE_LENGTH);
+                forwards.count--;
+                queue->failures++;
+                can_bus_diagnostics[0].forward_expired++;
+            }
         }
         /* Retain the head frame on HAL failure or mailbox exhaustion. The
          * critical section also serializes cancellation and ISR producers. */
         while ((queue->bus != NULL) &&
-               ((queue->count != 0U) || ((queue == &queues[0]) && (replies.count != 0U))) &&
+               ((queue->count != 0U) || ((queue == &queues[0]) &&
+                ((replies.count != 0U) || (forwards.count != 0U)))) &&
                (ros_pending == 0U) &&
                (backoff_active(queue) == 0U) &&
                (HAL_CAN_GetState(queue->bus) == HAL_CAN_STATE_LISTENING) &&
@@ -420,8 +481,9 @@ void can_transport_service(void)
             if (notified_pending) break;
             uint32_t mailbox;
             uint8_t reply = (queue == &queues[0]) && (replies.count != 0U);
+            uint8_t forward = (queue == &queues[0]) && !reply && (forwards.count != 0U);
             CAN_QueuedFrame_t *queued = reply ? &replies.frames[replies.head] : &queue->frames[queue->head];
-            CAN_TxFrame_t *frame = &queued->frame;
+            CAN_TxFrame_t *frame = forward ? &forwards.frames[forwards.head] : &queued->frame;
             HAL_StatusTypeDef submitted = HAL_CAN_AddTxMessage(queue->bus, &frame->header, frame->data, &mailbox);
             if (submitted != HAL_OK) {
                 volatile CAN_BusDiagnostics_t *diag = &can_bus_diagnostics[i];
@@ -436,11 +498,12 @@ void can_transport_service(void)
                     /* A mailbox can finish and be reused between polls. Its
                      * old callback must fire before the new one replaces it. */
                     complete_slot(&queue->in_flight[m]);
-                    queue->in_flight[m].callback = queued->callback;
-                    queue->in_flight[m].token = queued->token;
+                    queue->in_flight[m].callback = forward ? NULL : queued->callback;
+                    queue->in_flight[m].token = forward ? 0U : queued->token;
                     queue->in_flight[m].started = HAL_GetTick();
                     queue->in_flight[m].active = 1U;
-                    queue->in_flight[m].reply = reply;
+                    queue->in_flight[m].source = reply ? CAN_TX_REPLY :
+                                                  forward ? CAN_TX_FORWARD : CAN_TX_NORMAL;
                     break;
                 }
             }
@@ -461,11 +524,13 @@ void can_transport_cancel(CAN_HandleTypeDef *bus)
     uint32_t primask = enter_critical();
     if (queue != NULL) {
         can_bus_diagnostics[queue - queues].canceled_frames += queue->count +
-            (queue == &queues[0] ? replies.count : 0U);
+            (queue == &queues[0] ? replies.count + forwards.count : 0U);
         abort_requests(queue);
         if (queue == &queues[0]) {
             replies.head = replies.tail = replies.count = 0U;
             can_bus_diagnostics[0].reply_pending = 0U;
+            forwards.head = forwards.tail = forwards.count = 0U;
+            can_bus_diagnostics[0].forward_pending = 0U;
         }
     }
     exit_critical(primask);
@@ -492,6 +557,10 @@ void can_transport_capture_error(CAN_HandleTypeDef *bus)
     CAN_TxQueue_t *queue = find_queue(bus);
     if (queue == NULL) return;
     uint32_t primask = enter_critical();
+    if ((bus->Instance->MSR & CAN_MSR_ERRI) == 0U) {
+        exit_critical(primask);
+        return;
+    }
     volatile CAN_BusDiagnostics_t *diag = &can_bus_diagnostics[queue - queues];
     snapshot(queue);
     diag->last_error_tick = diag->tick;

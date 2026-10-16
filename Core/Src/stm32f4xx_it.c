@@ -84,7 +84,9 @@ static void forward_can2_to_can1(const CAN_RxHeaderTypeDef *rxHeader, const uint
   txHeader.DLC = rxHeader->DLC;
   txHeader.TransmitGlobalTime = DISABLE;
 
-  (void)can_transport_send(&hcan1, &txHeader, rxData);
+  /* Independent bounded FIFO retains native feedback through CAN1 backoff.
+   * Overflow/expiry are counted by transport; never block the RX interrupt. */
+  (void)can_transport_forward(&hcan1, &txHeader, rxData);
 }
 /* USER CODE END 0 */
 
@@ -222,12 +224,14 @@ void CAN2_SCE_IRQHandler(void)
 
 void CAN1_RX0_IRQHandler(void)
 {
+  can_transport_capture_error(&hcan1);
   can_transport_capture_rx_overrun(&hcan1);
   HAL_CAN_IRQHandler(&hcan1);
 }
 
 void CAN2_RX0_IRQHandler(void)
 {
+  can_transport_capture_error(&hcan2);
   can_transport_capture_rx_overrun(&hcan2);
   HAL_CAN_IRQHandler(&hcan2);
 }

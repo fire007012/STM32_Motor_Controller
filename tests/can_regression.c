@@ -56,7 +56,7 @@ HAL_StatusTypeDef HAL_CAN_AddTxMessage(CAN_HandleTypeDef *bus, const CAN_TxHeade
 }
 HAL_StatusTypeDef HAL_CAN_AbortTxRequest(CAN_HandleTypeDef *bus, uint32_t mailboxes)
 {
-    assert(mailboxes == 7U);
+    assert(mailboxes != 0U && (mailboxes & ~7U) == 0U);
     aborted[bus->index]++;
     free_mailboxes[bus->index] = 3U;
     return HAL_OK;
@@ -72,7 +72,13 @@ HAL_StatusTypeDef HAL_CAN_GetRxMessage(CAN_HandleTypeDef *bus, uint32_t fifo,
     memcpy(data, rx_data[i][head], 8U);
     return HAL_OK;
 }
-void HAL_CAN_IRQHandler(CAN_HandleTypeDef *bus) { bus->Instance->ESR &= ~0x70U; }
+void HAL_CAN_IRQHandler(CAN_HandleTypeDef *bus)
+{
+    if (bus->Instance->MSR & CAN_MSR_ERRI) {
+        bus->Instance->ESR &= ~0x70U;
+        bus->Instance->MSR &= ~CAN_MSR_ERRI;
+    }
+}
 void HAL_TIM_IRQHandler(TIM_HandleTypeDef *timer) { (void)timer; }
 static unsigned arm_servo_count;
 uint8_t ArmServo_HandleCanCommand(const uint8_t data[8]) { (void)data; arm_servo_count++; return 0U; }
@@ -1031,6 +1037,7 @@ static void test_can_error_diagnostics(void)
     can_registers[0].MCR = 0x00010054U;
     can_registers[0].BTR = 0x00180005U;
     can_registers[0].ESR = 0x00800033U;
+    can_registers[0].MSR = CAN_MSR_ERRI;
     CAN1_SCE_IRQHandler();
     can_transport_get_diagnostics(&hcan1, &diag);
     assert(diag.last_error_esr == 0x00800033U && diag.last_error_tick == 42U);
@@ -1038,6 +1045,7 @@ static void test_can_error_diagnostics(void)
     assert(diag.lec_events[3] == 1U && diag.error_passive_events == 1U && diag.error_warning_events == 1U);
     assert(diag.mcr == 0x00010054U && diag.btr == 0x00180005U);
     can_registers[1].ESR = 0x01000061U;
+    can_registers[1].MSR = CAN_MSR_ERRI;
     CAN2_SCE_IRQHandler();
     can_transport_get_diagnostics(&hcan2, &diag);
     assert(diag.last_error_esr == 0x01000061U && diag.error_events == 1U);
@@ -1065,9 +1073,14 @@ static void test_can_error_diagnostics(void)
 }
 
 #include "can_latest_checks.inc"
+#include "can_forward_checks.inc"
 
 int main(void)
 {
+    test_native_forward_backoff_and_priority();
+    test_native_forward_retry_expiry_and_cancel();
+    test_native_forward_capacity_and_arbitration();
+    test_error_capture_from_receive_irqs();
     test_latest_capacity_and_priority();
     test_latest_in_flight_and_recovery();
     test_latest_ring_and_callbacks();

@@ -184,7 +184,7 @@ int main(void)
             CAN_TxHeaderTypeDef raw = {.IDE = CAN_ID_EXT,
                 .ExtId = ((tick / 20U % 4U) + 1U) << 8, .DLC = 5U};
             uint8_t payload[8] = {0x35U, (uint8_t)tick, (uint8_t)(tick >> 8), 0U, 0x6BU};
-            assert(can_transport_send(&hcan1, &raw, payload) == HAL_OK);
+            assert(can_transport_forward(&hcan1, &raw, payload) == HAL_OK);
         }
         if (tick % 50U == 0U) {
             for (uint8_t sensor = 0U; sensor < DISTANCE_SENSOR_COUNT; sensor++) {

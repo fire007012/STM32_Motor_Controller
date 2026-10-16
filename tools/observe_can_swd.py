@@ -22,9 +22,24 @@ FIELDS = ("tick mcr btr esr tsr last_error_tick last_error_esr error_events "
           "error_warning_events error_passive_events bus_off_events").split()
 FIELDS += [f"lec_{n}" for n in range(8)]
 FIELDS += ["rx_overruns", "tx_failures", "backoff_rejected"]
+FORMATS = {2: FIELDS, 3: FIELDS + ["forward_pending", "forward_retries", "forward_overflow", "forward_expired"]}
 COUNTERS = ("tx_ok rx_frames tx_failures queue_full hal_submit_errors hal_submit_busy "
             "tx_error tx_timeouts reply_overflow reply_expired error_events rx_overruns "
-            "latest_backpressure latest_replaced").split()
+            "latest_backpressure latest_replaced forward_retries forward_overflow forward_expired").split()
+
+
+def decode_diagnostics(data, size):
+    """Select the two-bus layout from the exact ELF size; reject mismatched targets."""
+    for version, fields in FORMATS.items():
+        if size == len(fields) * 8:
+            if len(data) != size // 4:
+                raise RuntimeError("Incomplete CAN diagnostic memory read")
+            buses = [dict(zip(fields, data[bus * len(fields):(bus + 1) * len(fields)]))
+                     for bus in range(2)]
+            if any(bus["format_version"] != version for bus in buses):
+                raise RuntimeError("Running CAN diagnostic format differs from the supplied ELF")
+            return buses
+    raise RuntimeError("Unsupported ELF CAN diagnostic layout (expected format 2 or 3)")
 
 
 def main():
@@ -44,8 +59,8 @@ def main():
         if len(parts) == 4:
             symbols[parts[-1]] = (int(parts[0], 16), int(parts[1], 16))
     base, size = symbols["can_bus_diagnostics"]
-    if size != len(FIELDS) * 8:
-        raise RuntimeError("ELF diagnostic size differs from this format-v2 reader")
+    if size not in [len(fields) * 8 for fields in FORMATS.values()]:
+        raise RuntimeError("Unsupported ELF CAN diagnostic layout (expected format 2 or 3)")
 
     with socket.create_connection(("127.0.0.1", args.port), timeout=10) as connection:
         def command(text):
@@ -75,14 +90,13 @@ def main():
         with args.output.open("w", encoding="utf-8") as output:
             while True:
                 data = words(base, size // 4)
+                buses = decode_diagnostics(data, size)
                 tick = words(symbols["uwTick"][0], 1)[0]
                 record = {"time": datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8))).isoformat(),
                           "elapsed_seconds": time.monotonic() - started,
                           "tick": tick, "cpu_state": command("stm32f4x.cpu curstate")}
                 for bus in range(2):
-                    diag = dict(zip(FIELDS, data[bus * len(FIELDS):(bus + 1) * len(FIELDS)]))
-                    if diag["format_version"] != 2:
-                        raise RuntimeError("Running target does not expose diagnostic format 2")
+                    diag = buses[bus]
                     esr = diag["esr"]
                     diag["TEC"], diag["REC"], diag["LEC"] = (esr >> 16) & 255, esr >> 24, (esr >> 4) & 7
                     record[f"can{bus + 1}"] = diag
@@ -111,7 +125,8 @@ def main():
         summary = {"elapsed_seconds": records[-1]["elapsed_seconds"], "samples": len(records),
                    "limitations": "STM32 SWD only; does not verify host error frames, ROS readiness or remote application receipt."}
         for bus in ("can1", "can2"):
-            summary[bus + "_delta"] = {key: (records[-1][bus][key] - baseline[bus][key]) & 0xFFFFFFFF for key in COUNTERS}
+            summary[bus + "_delta"] = {key: (records[-1][bus][key] - baseline[bus][key]) & 0xFFFFFFFF
+                                      for key in COUNTERS if key in baseline[bus]}
             summary[bus + "_final"] = records[-1][bus]
         summary["motor_updates_delta"] = [{"index": motor,
             "speed": (records[-1]["motors"][motor]["speed_updates"] - baseline["motors"][motor]["speed_updates"]) & 0xFFFFFFFF,
