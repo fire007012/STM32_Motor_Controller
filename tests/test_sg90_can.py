@@ -17,7 +17,7 @@ class PositionServoCAN(unittest.TestCase):
         macros = '\n'.join(line for line in source.splitlines()
                            if line.startswith('#define SERVO_') and not line.rstrip().endswith('\\'))
         functions = source[source.index('static uint32_t Servo_AngleToPulse('):
-                           source.index('static void Servo_PollButtons(void)\n{')]
+                           source.index('static void Servo_Service(void)\n{')]
         stub = r"""
 #include <stdint.h>
 #include <stddef.h>
@@ -28,6 +28,11 @@ class PositionServoCAN(unittest.TestCase):
 #define HAL_OK 0
 #define HAL_ERROR 1
 #define TIM_CHANNEL_3 3
+#define GPIOE ((void *)5)
+#define GPIO_PIN_3 (1U<<3)
+#define GPIO_PIN_4 (1U<<4)
+#define GPIO_PIN_RESET 0U
+#define GPIO_PIN_SET 1U
 #define __HAL_TIM_SET_COMPARE(t,c,v) ((void)(c),(t)->pulse=(v))
 typedef int HAL_StatusTypeDef;
 typedef struct {uint32_t pulse;} TIM_HandleTypeDef;
@@ -35,7 +40,12 @@ static TIM_HandleTypeDef htim3,htim4;
 static uint8_t servo_return_pending,servo_return_angle,servo_return_mask,servo_initialized,servo_remote_owned;
 static uint32_t tick,servo_return_tick,primask;
 static unsigned wkup_demo_state;
+static uint8_t k0_down,k1_down;
 static uint32_t HAL_GetTick(void){return tick;}
+static uint8_t HAL_GPIO_ReadPin(void *port,uint32_t pin){
+ assert(port==GPIOE);
+ return (pin==GPIO_PIN_4 ? k0_down : k1_down) ? GPIO_PIN_RESET : GPIO_PIN_SET;
+}
 static uint32_t __get_PRIMASK(void){return primask;}
 static void __disable_irq(void){primask=1;}
 static void __enable_irq(void){primask=0;}
@@ -45,10 +55,17 @@ static int HAL_TIM_PWM_Start(TIM_HandleTypeDef *t,uint32_t c){(void)t;(void)c;re
 static void sum(uint8_t d[8]){d[7]=0;for(int i=0;i<7;i++)d[7]+=d[i];}
 int main(void){
  assert(Servo_Init()==HAL_OK);assert(htim3.pulse==250 && htim4.pulse==250);
+ /* Exercise the real KEY_TEST_ENABLE=0 debounce path and both outputs. */
+ k0_down=1;for(unsigned i=0;i<25;i++){tick++;Servo_PollButtons();}
+ assert(htim3.pulse==55 && htim4.pulse==55);
+ k0_down=0;for(unsigned i=0;i<25;i++){tick++;Servo_PollButtons();}
+ k1_down=1;for(unsigned i=0;i<25;i++){tick++;Servo_PollButtons();}
+ assert(htim3.pulse==250 && htim4.pulse==250);
+ k1_down=0;for(unsigned i=0;i<25;i++){tick++;Servo_PollButtons();}
  uint8_t d[8]={0x22,1,0,0,0,0,42,0};sum(d);
  assert(Servo_HandlePositionCanCommand(d)==0);assert(htim3.pulse==55 && htim4.pulse==250);
- assert(servo_remote_owned);Servo_SetLocalBoth(180);assert(htim3.pulse==250);
- Servo_ReleaseLocalControl();Servo_SetLocalBoth(180);assert(htim3.pulse==250);
+ assert(servo_remote_owned);Servo_SetLocalBoth(180);assert(htim3.pulse==250 && htim4.pulse==250);
+ Servo_ReleaseLocalControl();Servo_SetLocalBoth(180);assert(htim3.pulse==250 && htim4.pulse==250);
  d[1]=2;sum(d);assert(Servo_HandlePositionCanCommand(d)==0);assert(htim4.pulse==55);
  d[1]=3;d[2]=90;d[3]=181;sum(d);assert(Servo_HandlePositionCanCommand(d)==2);
  assert(htim3.pulse==250 && htim4.pulse==55);

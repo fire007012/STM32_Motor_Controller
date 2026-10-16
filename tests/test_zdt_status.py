@@ -23,8 +23,9 @@ class StatusClassifier(unittest.TestCase):
                 'static uint32_t test_primask;\n'
                 'static inline uint32_t __get_PRIMASK(void) { return test_primask; }\n'
                 'static inline void __disable_irq(void) { test_primask = 1U; }\n'
-                'static inline void __enable_irq(void) { test_primask = 0U; }\n')
-            (tmp / 'motor_control.h').write_text('#define MOTOR_COUNT 5U\n')
+                'static inline void __enable_irq(void) { test_primask = 0U; }\n'
+                'static inline uint32_t HAL_GetTick(void) { return 123U; }\n')
+            (tmp / 'motor_control.h').write_text('#define MOTOR_COUNT 4U\n')
             (tmp / 'check.c').write_text(r'''#include <assert.h>
 #include "zdt_status.h"
 #include "motor_control.h"

@@ -1226,6 +1226,22 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
+static uint8_t Servo_DemoClaimLocal(void)
+{
+  uint32_t primask = __get_PRIMASK();
+  __disable_irq();
+  if (!servo_initialized || wkup_demo_state != WKUP_DEMO_IDLE) {
+    if (primask == 0U) __enable_irq();
+    return 0U;
+  }
+  /* A physical WK_UP request explicitly starts a local gripper test; discard
+   * stale CAN ownership and any scheduled return from an earlier SG90 frame. */
+  servo_remote_owned = 0U;
+  servo_return_pending = 0U;
+  if (primask == 0U) __enable_irq();
+  return 1U;
+}
+
 static uint8_t Servo_DemoSetBoth(int16_t angle_deg)
 {
   uint32_t primask = __get_PRIMASK();
@@ -1254,14 +1270,12 @@ static void WkupDemo_Service(void)
   switch (wkup_demo_state) {
     case WKUP_DEMO_IDLE:
       if (ArmServo_PollDemo(HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET)) {
-        const uint32_t primask = __get_PRIMASK();
-        __disable_irq();
-        if (ArmServo_DemoSetAngle(ARM_SERVO_WK_PLACE_DEG)) {
-          servo_return_pending = 0U;
+        if (Servo_DemoClaimLocal() && ArmServo_DemoSetAngle(ARM_SERVO_WK_PLACE_DEG)) {
           wkup_demo_stage_tick = now;
           wkup_demo_state = WKUP_DEMO_ARM_FORWARD;
+        } else {
+          (void)ArmServo_DemoEnd();
         }
-        if (primask == 0U) __enable_irq();
       }
       break;
 
