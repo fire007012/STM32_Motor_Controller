@@ -1,0 +1,1 @@
+journalctl -k --since 2026-10-15 15:50:00 --until 2026-10-15 20:10:00 -o short-iso-precise --no-pager --all

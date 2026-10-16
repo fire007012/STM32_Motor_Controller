@@ -33,7 +33,7 @@ static void enqueue_command(Motor_Command_t *cmd)
         header.IDE = CAN_ID_STD;
         header.RTR = CAN_RTR_DATA;
         header.DLC = 8U;
-        (void)can_transport_send(&hcan1, &header, data);
+        (void)can_transport_send_reply(&hcan1, &header, data);
     }
 }
 
@@ -47,7 +47,7 @@ static void send_servo_ack(uint32_t id, uint8_t code, const uint8_t request[8], 
     header.RTR = CAN_RTR_DATA;
     header.DLC = 8U;
     for (i = 0U; i < 7U; ++i) data[7] = (uint8_t)(data[7] + data[i]);
-    (void)can_transport_send(&hcan1, &header, data);
+    (void)can_transport_send_reply(&hcan1, &header, data);
 }
 
 void CAN1_RxCallback(CAN_RxHeaderTypeDef rxHeader, uint8_t rxData[8])

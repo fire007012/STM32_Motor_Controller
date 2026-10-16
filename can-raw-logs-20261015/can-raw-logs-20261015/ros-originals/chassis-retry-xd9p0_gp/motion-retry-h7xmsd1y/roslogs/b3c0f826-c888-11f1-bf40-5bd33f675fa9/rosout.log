@@ -1,0 +1,6 @@
+
+
+1792062488.759079062  Node Startup
+1792062490.156338986 ERROR /can_interface_node [/tmp/chassis-retry-xd9p0_gp/can_interface_software_test.cpp:402(CanInterfaceNode::triggerEmergencyStop)] [topics: /rosout, /motor_state, /motor_status_flags, /emergency_stop, /robot_state, /robot_display, /stop_all, /chassis_lock, /fixed_route/hold, /move_base/cancel, /can_rx, /motor_link_ready] [can_interface] ESTOP latched: software estop
+1792062490.156418492 INFO /can_interface_node [/tmp/chassis-retry-xd9p0_gp/can_interface_software_test.cpp:381(CanInterfaceNode::publishMotionStartState)] [topics: /rosout, /motor_state, /motor_status_flags, /emergency_stop, /robot_state, /robot_display, /stop_all, /chassis_lock, /fixed_route/hold, /move_base/cancel, /can_rx, /motor_link_ready] [can_interface] motion start state=ESTOP_LATCHED
+1792062490.275804077 WARN /can_interface_node [/tmp/chassis-retry-xd9p0_gp/can_interface_software_test.cpp:407(CanInterfaceNode::triggerEmergencyStop)] [topics: /rosout, /motor_state, /motor_status_flags, /emergency_stop, /robot_state, /robot_display, /stop_all, /chassis_lock, /fixed_route/hold, /move_base/cancel, /can_rx, /motor_link_ready] [can_interface] duplicate ESTOP ignored: STM32 queue/execution/transport failure counter changed

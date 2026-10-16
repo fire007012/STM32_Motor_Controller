@@ -1,0 +1,23 @@
+Provenance: copied verbatim from tool output in this conversation, not an original on-disk capture.
+Command: timeout 10s candump -e -n 60 can0,0:0,#1FFFFFFF
+The following are selected frames from that output. This command did not include timestamps.
+
+  can0  2000000C   [8]  00 30 00 08 00 00 00 00   ERRORFRAME
+	controller-problem{rx-error-passive,tx-error-passive}
+	protocol-violation{{}{crc-sequence}}
+  can0  2000000C   [8]  00 30 02 00 00 00 00 00   ERRORFRAME
+	controller-problem{rx-error-passive,tx-error-passive}
+	protocol-violation{{frame-format-error}{}}
+  can0  2000000C   [8]  00 30 04 00 00 00 00 00   ERRORFRAME
+	controller-problem{rx-error-passive,tx-error-passive}
+	protocol-violation{{bit-stuffing-error}{}}
+
+Command: timeout 5s candump -e -n 12 can0,0:0,#1FFFFFFF
+The following are the first two frames of the retry output, without timestamps.
+
+  can0  2000000C   [8]  00 30 02 00 00 00 00 00   ERRORFRAME
+	controller-problem{rx-error-passive,tx-error-passive}
+	protocol-violation{{frame-format-error}{}}
+  can0  2000000C   [8]  00 30 00 08 00 00 00 00   ERRORFRAME
+	controller-problem{rx-error-passive,tx-error-passive}
+	protocol-violation{{}{crc-sequence}}

@@ -45,6 +45,14 @@ typedef struct {
     int32_t speed_rpm;
 } zdt_estop_event_t;
 
+/* SWD-only counters/timestamps, updated by validated driver callbacks.
+ * No changes to CAN payloads or safety freshness thresholds. */
+typedef struct {
+    uint32_t speed_tick, speed_updates, status_tick, status_updates;
+} ZDT_FeedbackDiagnostics_t;
+
+extern volatile ZDT_FeedbackDiagnostics_t zdt_feedback_diagnostics[4];
+
 void zdt_status_init(void);
 void zdt_status_update_status(uint8_t motor_idx, uint8_t status_flags);
 void zdt_status_update_speed(uint8_t motor_idx, int32_t speed_rpm);

@@ -1,0 +1,184 @@
+-- Logs begin at Sat 2026-04-18 16:52:22 CST, end at Thu 2026-10-15 19:55:19 CST. --
+2026-10-15T15:51:48.715181+0800 fire1 kernel: perf: interrupt took too long (44526 > 44233), lowering kernel.perf_event_max_sample_rate to 4250
+2026-10-15T15:54:22.700714+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link down
+2026-10-15T15:54:32.712700+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link up
+2026-10-15T15:55:05.446506+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link down
+2026-10-15T15:55:47.030747+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link up
+2026-10-15T15:55:49.857261+0800 fire1 kernel: usb 1-1: new high-speed USB device number 2 using ehci-pci
+2026-10-15T15:55:50.034585+0800 fire1 kernel: usb 1-1: New USB device found, idVendor=3277, idProduct=0096, bcdDevice= 0.04
+2026-10-15T15:55:50.036926+0800 fire1 kernel: usb 1-1: New USB device strings: Mfr=3, Product=1, SerialNumber=2
+2026-10-15T15:55:50.037062+0800 fire1 kernel: usb 1-1: Product: ASUS FHD webcam
+2026-10-15T15:55:50.037165+0800 fire1 kernel: usb 1-1: Manufacturer: Shinetech
+2026-10-15T15:55:50.037297+0800 fire1 kernel: usb 1-1: SerialNumber: 200901010001
+2026-10-15T15:55:50.326354+0800 fire1 kernel: mc: Linux media interface: v0.10
+2026-10-15T15:55:50.338436+0800 fire1 kernel: videodev: loading out-of-tree module taints kernel.
+2026-10-15T15:55:50.338555+0800 fire1 kernel: videodev: module verification failed: signature and/or required key missing - tainting kernel
+2026-10-15T15:55:50.363599+0800 fire1 kernel: videodev: Linux video capture interface: v2.00
+2026-10-15T15:55:50.406468+0800 fire1 kernel: usb 1-1: Found UVC 1.10 device ASUS FHD webcam (3277:0096)
+2026-10-15T15:55:50.450022+0800 fire1 kernel: input: ASUS FHD webcam: ASUS FHD webca as /devices/pci0000:00/0000:00:11.0/0000:02:03.0/usb1/1-1/1-1:1.0/input/input6
+2026-10-15T15:55:50.454390+0800 fire1 kernel: usb 1-1: Found UVC 1.50 device ASUS FHD webcam (3277:0096)
+2026-10-15T15:55:50.468260+0800 fire1 kernel: input: ASUS FHD webcam: ASUS IR camera as /devices/pci0000:00/0000:00:11.0/0000:02:03.0/usb1/1-1/1-1:1.2/input/input7
+2026-10-15T15:55:50.468330+0800 fire1 kernel: usbcore: registered new interface driver uvcvideo
+2026-10-15T15:55:54.807022+0800 fire1 kernel: usb 2-2.1: new full-speed USB device number 4 using uhci_hcd
+2026-10-15T15:55:55.098400+0800 fire1 kernel: usb 2-2.1: New USB device found, idVendor=1d50, idProduct=606f, bcdDevice= 0.00
+2026-10-15T15:55:55.102012+0800 fire1 kernel: usb 2-2.1: New USB device strings: Mfr=1, Product=2, SerialNumber=3
+2026-10-15T15:55:55.104024+0800 fire1 kernel: usb 2-2.1: Product: candleLight USB to CAN adapter
+2026-10-15T15:55:55.104186+0800 fire1 kernel: usb 2-2.1: Manufacturer: bytewerk
+2026-10-15T15:55:55.104293+0800 fire1 kernel: usb 2-2.1: SerialNumber: 004300314248571820353232
+2026-10-15T15:55:55.154248+0800 fire1 kernel: CAN device driver interface
+2026-10-15T15:55:55.170902+0800 fire1 kernel: gs_usb 2-2.1:1.0: Configuring for 1 interfaces
+2026-10-15T15:55:55.172919+0800 fire1 kernel: usbcore: registered new interface driver gs_usb
+2026-10-15T15:56:43.034480+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link down
+2026-10-15T15:56:53.014635+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link up
+2026-10-15T16:01:21.346548+0800 fire1 kernel: gs_usb 2-2.1:1.0: Couldn't set bittimings (err=-110)
+2026-10-15T16:01:26.338520+0800 fire1 kernel: gs_usb 2-2.1:1.0: Couldn't set bittimings (err=-110)
+2026-10-15T16:02:48.454836+0800 fire1 kernel: IPv6: ADDRCONF(NETDEV_CHANGE): can0: link becomes ready
+2026-10-15T16:03:48.830445+0800 fire1 kernel: can: controller area network core
+2026-10-15T16:03:48.834065+0800 fire1 kernel: NET: Registered PF_CAN protocol family
+2026-10-15T16:03:48.842309+0800 fire1 kernel: can: raw protocol
+2026-10-15T16:09:17.956565+0800 fire1 kernel: usb 2-2.1: USB disconnect, device number 4
+2026-10-15T16:09:17.984466+0800 fire1 kernel: gs_usb 2-2.1:1.0 can0: Couldn't shutdown device (err=-19)
+2026-10-15T16:09:36.489021+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link down
+2026-10-15T16:09:46.469396+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link up
+2026-10-15T16:11:34.468653+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link down
+2026-10-15T16:11:44.489927+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link up
+2026-10-15T16:13:10.470293+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link down
+2026-10-15T16:13:20.484858+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link up
+2026-10-15T16:13:54.472816+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link down
+2026-10-15T16:14:04.485105+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link up
+2026-10-15T16:14:34.705877+0800 fire1 kernel: usb 2-2.1: new full-speed USB device number 5 using uhci_hcd
+2026-10-15T16:14:35.000519+0800 fire1 kernel: usb 2-2.1: New USB device found, idVendor=1d50, idProduct=606f, bcdDevice= 0.00
+2026-10-15T16:14:35.014173+0800 fire1 kernel: usb 2-2.1: New USB device strings: Mfr=1, Product=2, SerialNumber=3
+2026-10-15T16:14:35.014346+0800 fire1 kernel: usb 2-2.1: Product: candleLight USB to CAN adapter
+2026-10-15T16:14:35.014456+0800 fire1 kernel: usb 2-2.1: Manufacturer: bytewerk
+2026-10-15T16:14:35.014556+0800 fire1 kernel: usb 2-2.1: SerialNumber: 004300314248571820353232
+2026-10-15T16:14:35.014732+0800 fire1 kernel: gs_usb 2-2.1:1.0: Configuring for 1 interfaces
+2026-10-15T16:15:05.068962+0800 fire1 kernel: gs_usb 2-2.1:1.0: Couldn't set bittimings (err=-110)
+2026-10-15T16:15:11.068903+0800 fire1 kernel: gs_usb 2-2.1:1.0: Couldn't set bittimings (err=-110)
+2026-10-15T16:15:14.068660+0800 fire1 kernel: gs_usb 2-2.1:1.0: Couldn't set bittimings (err=-110)
+2026-10-15T16:15:17.101143+0800 fire1 kernel: gs_usb 2-2.1:1.0: Couldn't set bittimings (err=-110)
+2026-10-15T16:15:20.065129+0800 fire1 kernel: gs_usb 2-2.1:1.0: Couldn't set bittimings (err=-110)
+2026-10-15T16:15:25.096826+0800 fire1 kernel: IPv6: ADDRCONF(NETDEV_CHANGE): can0: link becomes ready
+2026-10-15T16:18:00.896707+0800 fire1 kernel: usb 2-2.1: USB disconnect, device number 5
+2026-10-15T16:18:00.917432+0800 fire1 kernel: gs_usb 2-2.1:1.0 can0: Couldn't shutdown device (err=-19)
+2026-10-15T16:18:48.488621+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link down
+2026-10-15T16:18:58.469429+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link up
+2026-10-15T16:21:06.092072+0800 fire1 kernel: usb 2-2.1: new full-speed USB device number 6 using uhci_hcd
+2026-10-15T16:21:06.388559+0800 fire1 kernel: usb 2-2.1: New USB device found, idVendor=1d50, idProduct=606f, bcdDevice= 0.00
+2026-10-15T16:21:06.438894+0800 fire1 kernel: usb 2-2.1: New USB device strings: Mfr=1, Product=2, SerialNumber=3
+2026-10-15T16:21:06.439062+0800 fire1 kernel: usb 2-2.1: Product: candleLight USB to CAN adapter
+2026-10-15T16:21:06.439231+0800 fire1 kernel: usb 2-2.1: Manufacturer: bytewerk
+2026-10-15T16:21:06.439389+0800 fire1 kernel: usb 2-2.1: SerialNumber: 004300314248571820353232
+2026-10-15T16:21:06.439523+0800 fire1 kernel: gs_usb 2-2.1:1.0: Configuring for 1 interfaces
+2026-10-15T16:21:13.513354+0800 fire1 kernel: gs_usb 2-2.1:1.0: Couldn't set bittimings (err=-110)
+2026-10-15T16:21:16.512759+0800 fire1 kernel: gs_usb 2-2.1:1.0: Couldn't set bittimings (err=-110)
+2026-10-15T16:21:20.544764+0800 fire1 kernel: IPv6: ADDRCONF(NETDEV_CHANGE): can0: link becomes ready
+2026-10-15T16:22:04.488662+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link down
+2026-10-15T16:22:14.472827+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link up
+2026-10-15T16:25:05.229398+0800 fire1 kernel: usb 2-2.1: USB disconnect, device number 6
+2026-10-15T16:25:05.246617+0800 fire1 kernel: gs_usb 2-2.1:1.0 can0: Couldn't shutdown device (err=-19)
+2026-10-15T16:25:26.473017+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link down
+2026-10-15T16:25:36.492652+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link up
+2026-10-15T17:27:50.920242+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link down
+2026-10-15T17:28:00.967138+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link up
+2026-10-15T17:28:06.915731+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link down
+2026-10-15T17:28:18.954563+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link up
+2026-10-15T17:28:53.235901+0800 fire1 kernel: usb 2-2.1: new full-speed USB device number 7 using uhci_hcd
+2026-10-15T17:28:53.533671+0800 fire1 kernel: usb 2-2.1: New USB device found, idVendor=1d50, idProduct=606f, bcdDevice= 0.00
+2026-10-15T17:28:53.540217+0800 fire1 kernel: usb 2-2.1: New USB device strings: Mfr=1, Product=2, SerialNumber=3
+2026-10-15T17:28:53.540639+0800 fire1 kernel: usb 2-2.1: Product: candleLight USB to CAN adapter
+2026-10-15T17:28:53.542248+0800 fire1 kernel: usb 2-2.1: Manufacturer: bytewerk
+2026-10-15T17:28:53.542894+0800 fire1 kernel: usb 2-2.1: SerialNumber: 004300314248571820353232
+2026-10-15T17:28:53.575771+0800 fire1 kernel: gs_usb 2-2.1:1.0: Configuring for 1 interfaces
+2026-10-15T17:29:14.915753+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link down
+2026-10-15T17:29:19.888029+0800 fire1 kernel: gs_usb 2-2.1:1.0: Couldn't set bittimings (err=-110)
+2026-10-15T17:29:23.991706+0800 fire1 kernel: IPv6: ADDRCONF(NETDEV_CHANGE): can0: link becomes ready
+2026-10-15T17:29:24.935388+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link up
+2026-10-15T17:32:02.919742+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link down
+2026-10-15T17:32:11.746621+0800 fire1 kernel: perf: interrupt took too long (55945 > 55657), lowering kernel.perf_event_max_sample_rate to 3500
+2026-10-15T17:32:12.931800+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link up
+2026-10-15T17:40:02.093230+0800 fire1 kernel: IPv6: ADDRCONF(NETDEV_CHANGE): can0: link becomes ready
+2026-10-15T17:41:50.581459+0800 fire1 kernel: usb 2-2.1: USB disconnect, device number 7
+2026-10-15T17:41:50.602175+0800 fire1 kernel: gs_usb 2-2.1:1.0 can0: Couldn't shutdown device (err=-19)
+2026-10-15T17:42:20.501131+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link down
+2026-10-15T17:42:30.497489+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link up
+2026-10-15T18:41:38.939895+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link down
+2026-10-15T18:41:48.958966+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link up
+2026-10-15T18:44:32.957304+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link down
+2026-10-15T18:44:44.955307+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link up
+2026-10-15T18:45:22.788209+0800 fire1 kernel: usb 2-2.1: new full-speed USB device number 8 using uhci_hcd
+2026-10-15T18:45:23.091776+0800 fire1 kernel: usb 2-2.1: New USB device found, idVendor=1d50, idProduct=606f, bcdDevice= 0.00
+2026-10-15T18:45:23.094333+0800 fire1 kernel: usb 2-2.1: New USB device strings: Mfr=1, Product=2, SerialNumber=3
+2026-10-15T18:45:23.094597+0800 fire1 kernel: usb 2-2.1: Product: candleLight USB to CAN adapter
+2026-10-15T18:45:23.094761+0800 fire1 kernel: usb 2-2.1: Manufacturer: bytewerk
+2026-10-15T18:45:23.094886+0800 fire1 kernel: usb 2-2.1: SerialNumber: 004300314248571820353232
+2026-10-15T18:45:23.111149+0800 fire1 kernel: gs_usb 2-2.1:1.0: Configuring for 1 interfaces
+2026-10-15T18:45:39.950957+0800 fire1 kernel: IPv6: ADDRCONF(NETDEV_CHANGE): can0: link becomes ready
+2026-10-15T18:46:28.955331+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link down
+2026-10-15T18:46:38.978161+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link up
+2026-10-15T18:50:18.303121+0800 fire1 kernel: usb 2-2.1: USB disconnect, device number 8
+2026-10-15T18:50:18.324754+0800 fire1 kernel: gs_usb 2-2.1:1.0 can0: Couldn't shutdown device (err=-19)
+2026-10-15T18:50:36.959233+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link down
+2026-10-15T18:50:46.946712+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link up
+2026-10-15T18:51:02.939220+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link down
+2026-10-15T18:51:14.956550+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link up
+2026-10-15T18:53:10.939273+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link down
+2026-10-15T18:53:20.959080+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link up
+2026-10-15T18:53:22.943213+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link down
+2026-10-15T18:53:32.958957+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link up
+2026-10-15T18:54:02.779197+0800 fire1 kernel: usb 2-2.1: new full-speed USB device number 9 using uhci_hcd
+2026-10-15T18:54:03.109354+0800 fire1 kernel: usb 2-2.1: New USB device found, idVendor=1d50, idProduct=606f, bcdDevice= 0.00
+2026-10-15T18:54:03.111358+0800 fire1 kernel: usb 2-2.1: New USB device strings: Mfr=1, Product=2, SerialNumber=3
+2026-10-15T18:54:03.128593+0800 fire1 kernel: usb 2-2.1: Product: candleLight USB to CAN adapter
+2026-10-15T18:54:03.128728+0800 fire1 kernel: usb 2-2.1: Manufacturer: bytewerk
+2026-10-15T18:54:03.128897+0800 fire1 kernel: usb 2-2.1: SerialNumber: 004300314248571820353232
+2026-10-15T18:54:03.129014+0800 fire1 kernel: gs_usb 2-2.1:1.0: Configuring for 1 interfaces
+2026-10-15T18:54:18.671303+0800 fire1 kernel: IPv6: ADDRCONF(NETDEV_CHANGE): can0: link becomes ready
+2026-10-15T18:56:54.283164+0800 fire1 kernel: usb 2-2.1: USB disconnect, device number 9
+2026-10-15T18:56:54.301335+0800 fire1 kernel: gs_usb 2-2.1:1.0 can0: Couldn't shutdown device (err=-19)
+2026-10-15T18:57:22.155310+0800 fire1 kernel: usb 2-2.1: new full-speed USB device number 10 using uhci_hcd
+2026-10-15T18:57:22.484333+0800 fire1 kernel: usb 2-2.1: New USB device found, idVendor=1d50, idProduct=606f, bcdDevice= 0.00
+2026-10-15T18:57:22.485117+0800 fire1 kernel: usb 2-2.1: New USB device strings: Mfr=1, Product=2, SerialNumber=3
+2026-10-15T18:57:22.502433+0800 fire1 kernel: usb 2-2.1: Product: candleLight USB to CAN adapter
+2026-10-15T18:57:22.502695+0800 fire1 kernel: usb 2-2.1: Manufacturer: bytewerk
+2026-10-15T18:57:22.502921+0800 fire1 kernel: usb 2-2.1: SerialNumber: 004300314248571820353232
+2026-10-15T18:57:22.503236+0800 fire1 kernel: gs_usb 2-2.1:1.0: Configuring for 1 interfaces
+2026-10-15T18:57:32.590934+0800 fire1 kernel: IPv6: ADDRCONF(NETDEV_CHANGE): can0: link becomes ready
+2026-10-15T19:10:52.999646+0800 fire1 kernel: usb 2-2.1: USB disconnect, device number 10
+2026-10-15T19:10:53.025973+0800 fire1 kernel: gs_usb 2-2.1:1.0 can0: Couldn't shutdown device (err=-19)
+2026-10-15T19:11:15.952139+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link down
+2026-10-15T19:11:25.932091+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link up
+2026-10-15T19:37:25.931919+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link down
+2026-10-15T19:37:35.951452+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link up
+2026-10-15T19:37:45.931666+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link down
+2026-10-15T19:37:55.953318+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link up
+2026-10-15T19:38:29.932254+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link down
+2026-10-15T19:38:39.962101+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link up
+2026-10-15T19:38:45.928782+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link down
+2026-10-15T19:38:55.962022+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link up
+2026-10-15T19:40:18.147846+0800 fire1 kernel: usb 2-2.1: new full-speed USB device number 11 using uhci_hcd
+2026-10-15T19:40:18.467800+0800 fire1 kernel: usb 2-2.1: New USB device found, idVendor=1d50, idProduct=606f, bcdDevice= 0.00
+2026-10-15T19:40:18.469257+0800 fire1 kernel: usb 2-2.1: New USB device strings: Mfr=1, Product=2, SerialNumber=3
+2026-10-15T19:40:18.470734+0800 fire1 kernel: usb 2-2.1: Product: candleLight USB to CAN adapter
+2026-10-15T19:40:18.491379+0800 fire1 kernel: usb 2-2.1: Manufacturer: bytewerk
+2026-10-15T19:40:18.491574+0800 fire1 kernel: usb 2-2.1: SerialNumber: 004300314248571820353232
+2026-10-15T19:40:18.491841+0800 fire1 kernel: gs_usb 2-2.1:1.0: Configuring for 1 interfaces
+2026-10-15T19:40:30.264348+0800 fire1 kernel: IPv6: ADDRCONF(NETDEV_CHANGE): can0: link becomes ready
+2026-10-15T19:45:33.479760+0800 fire1 kernel: usb 2-2.1: USB disconnect, device number 11
+2026-10-15T19:45:33.501883+0800 fire1 kernel: gs_usb 2-2.1:1.0 can0: Couldn't shutdown device (err=-19)
+2026-10-15T19:47:16.732046+0800 fire1 kernel: usb 2-2.1: new full-speed USB device number 12 using uhci_hcd
+2026-10-15T19:47:17.037587+0800 fire1 kernel: usb 2-2.1: New USB device found, idVendor=1d50, idProduct=606f, bcdDevice= 0.00
+2026-10-15T19:47:17.056380+0800 fire1 kernel: usb 2-2.1: New USB device strings: Mfr=1, Product=2, SerialNumber=3
+2026-10-15T19:47:17.056582+0800 fire1 kernel: usb 2-2.1: Product: candleLight USB to CAN adapter
+2026-10-15T19:47:17.056742+0800 fire1 kernel: usb 2-2.1: Manufacturer: bytewerk
+2026-10-15T19:47:17.057007+0800 fire1 kernel: usb 2-2.1: SerialNumber: 004300314248571820353232
+2026-10-15T19:47:17.057167+0800 fire1 kernel: gs_usb 2-2.1:1.0: Configuring for 1 interfaces
+2026-10-15T19:47:24.211489+0800 fire1 kernel: IPv6: ADDRCONF(NETDEV_CHANGE): can0: link becomes ready
+2026-10-15T19:49:32.559928+0800 fire1 kernel: usb 2-2.1: USB disconnect, device number 12
+2026-10-15T19:49:32.576846+0800 fire1 kernel: gs_usb 2-2.1:1.0 can0: Couldn't shutdown device (err=-19)
+2026-10-15T19:50:49.931774+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link down
+2026-10-15T19:50:59.947572+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link up
+2026-10-15T19:53:09.931656+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link down
+2026-10-15T19:53:19.949909+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link up
+2026-10-15T19:54:55.951812+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link down
+2026-10-15T19:55:05.936298+0800 fire1 kernel: pcnet32 0000:02:05.0 ens37: link up

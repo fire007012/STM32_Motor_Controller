@@ -132,7 +132,7 @@ static uint8_t CAN_TryStart(CAN_HandleTypeDef *hcan);
 static void CAN_ServiceStartup(void);
 static HAL_StatusTypeDef CAN1_TrySend(const CAN_TxHeaderTypeDef *txHeader, uint8_t txData[8]);
 static void CAN1_SendStatus(uint8_t motor_idx);
-static void CAN1_SendAck(uint16_t seq, uint8_t cmd, uint8_t result);
+static HAL_StatusTypeDef CAN1_SendAck(uint16_t seq, uint8_t cmd, uint8_t result);
 static void CAN1_SendStats(void);
 static void CAN1_SendEmergencyEvent(uint8_t motor_idx, uint8_t reason_code, int32_t speed_rpm);
 static void CAN1_SendButtonEvent(uint8_t event_code, uint8_t result, uint16_t seq);
@@ -187,7 +187,7 @@ static void CAN1_SendButtonEvent(uint8_t event_code, uint8_t result, uint16_t se
   txHeader.DLC = 8U;
   txHeader.TransmitGlobalTime = DISABLE;
 
-  (void)CAN1_TrySend(&txHeader, txData);
+  (void)can_transport_send_reply(&hcan1, &txHeader, txData);
 }
 
 static void Buttons_Service(void)
@@ -486,7 +486,9 @@ static uint8_t CAN_TryStart(CAN_HandleTypeDef *hcan)
     return 0U;
   }
 
-  if (HAL_CAN_ActivateNotification(hcan, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK)
+  if (HAL_CAN_ActivateNotification(hcan, CAN_IT_RX_FIFO0_MSG_PENDING | CAN_IT_RX_FIFO0_OVERRUN |
+      CAN_IT_ERROR_WARNING | CAN_IT_ERROR_PASSIVE | CAN_IT_BUSOFF |
+      CAN_IT_LAST_ERROR_CODE | CAN_IT_ERROR) != HAL_OK)
   {
     (void)HAL_CAN_Stop(hcan);
     return 0U;
@@ -510,12 +512,20 @@ static void CAN_ServiceStartup(void)
 
 static HAL_StatusTypeDef CAN1_TrySend(const CAN_TxHeaderTypeDef *txHeader, uint8_t txData[8])
 {
+  if (txHeader->IDE == CAN_ID_STD &&
+      (txHeader->StdId == ROS_CAN_DISTANCE_ID || txHeader->StdId == ROS_CAN_STATS_ID))
+  {
+    uint16_t key = txHeader->StdId == ROS_CAN_DISTANCE_ID ?
+        (uint16_t)(((uint16_t)txData[0] << 8) | txData[1]) : txData[0];
+    return can_transport_send_latest(&hcan1, txHeader, txData, key);
+  }
   return can_transport_send(&hcan1, txHeader, txData);
 }
 
 static void CAN1_SendStatus(uint8_t motor_idx)
 {
   CAN_TxFrame_t frames[5] = {0};
+  uint16_t keys[5];
   Motor_State_t state;
   uint8_t count = 0U;
   uint8_t report_mask;
@@ -534,6 +544,7 @@ static void CAN1_SendStatus(uint8_t motor_idx)
     CAN_TxFrame_t *frame;
     int32_t value;
     if ((report_mask & mask) == 0U) continue;
+    keys[count] = (uint16_t)(((uint16_t)type << 8) | motor_idx);
     frame = &frames[count++];
     frame->header.StdId = ROS_CAN_STATUS_ID;
     frame->header.IDE = CAN_ID_STD;
@@ -558,9 +569,9 @@ static void CAN1_SendStatus(uint8_t motor_idx)
     frame->data[4] = (uint8_t)((uint32_t)value >> 16);
     frame->data[5] = (uint8_t)((uint32_t)value >> 24);
   }
-  /* Queue each motor's selected types together. With individual sends a nearly
-   * full queue could repeatedly accept BASIC and discard POSITION/VELOCITY. */
-  if (count != 0U) (void)can_transport_send_batch(&hcan1, frames, count);
+  /* Atomically replace each motor's snapshots. HAL_BUSY accepts none; the next
+   * status cycle rebuilds all selected types from current state, never backlog. */
+  if (count != 0U) (void)can_transport_send_latest_batch(&hcan1, frames, keys, count);
 }
 
 static HAL_StatusTypeDef CAN1_SendDistance(const distance_sensor_sample_t *sample)
@@ -619,7 +630,7 @@ static HAL_StatusTypeDef CAN1_SendSensorDiag(const distance_sensor_diag_t *diagn
     return CAN1_TrySend(&txHeader, txData);
   }
 
-static void CAN1_SendAck(uint16_t seq, uint8_t cmd, uint8_t result)
+static HAL_StatusTypeDef CAN1_SendAck(uint16_t seq, uint8_t cmd, uint8_t result)
 {
   CAN_TxHeaderTypeDef txHeader = {0};
   uint8_t txData[8] = {0};
@@ -636,7 +647,7 @@ static void CAN1_SendAck(uint16_t seq, uint8_t cmd, uint8_t result)
   txHeader.DLC = 8U;
   txHeader.TransmitGlobalTime = DISABLE;
 
-  (void)CAN1_TrySend(&txHeader, txData);
+  return can_transport_send_reply(&hcan1, &txHeader, txData);
 }
 
 static void CAN1_SendStats(void)
@@ -709,7 +720,7 @@ static void CAN1_SendEmergencyEvent(uint8_t motor_idx, uint8_t reason_code, int3
   txHeader.DLC = 8U;
   txHeader.TransmitGlobalTime = DISABLE;
 
-  (void)CAN1_TrySend(&txHeader, txData);
+  (void)can_transport_send_reply(&hcan1, &txHeader, txData);
 }
 
 /* USER CODE END 0 */
@@ -736,6 +747,13 @@ int main(void)
 
   /* Configure the system clock */
   SystemClock_Config();
+
+#if defined(STM32_DIAGNOSTIC_CAN_PROBE) && STM32_DIAGNOSTIC_CAN_PROBE
+  /* Standalone probe: run before GPIO/PWM, CAN2, sensors and the scheduler. */
+  extern void can_probe_run(void);
+  can_probe_run();
+  for (;;) { }
+#endif
 
   /* USER CODE BEGIN SysInit */
 
@@ -839,6 +857,24 @@ void SystemClock_Config(void)
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
+#if defined(STM32_DIAGNOSTIC_HSE_DIRECT) && STM32_DIAGNOSTIC_HSE_DIRECT
+  /* Clock-only measurement: HSE feeds SYSCLK directly. Even a 25 MHz
+   * crystal stays within CPU limits. HAL assumes HSE_VALUE=8 MHz, so the
+   * tick/wall-time ratio reveals the physical HSE frequency. No CAN/PWM. */
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_OFF;
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) Error_Handler();
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSE;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK) Error_Handler();
+  return;
+#endif
+
   /** Configure the main internal regulator output voltage
   */
   __HAL_RCC_PWR_CLK_ENABLE();
@@ -847,13 +883,23 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+#if defined(STM32_DIAGNOSTIC_HSI_CLOCK) && STM32_DIAGNOSTIC_HSI_CLOCK
+  /* Diagnostic only: 16 MHz HSI / 16 * 144 / 2 = 72 MHz, independent
+   * of the external crystal. Keep all peripheral clock rates unchanged. */
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+  RCC_OscInitStruct.PLL.PLLM = 16;
+#else
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   /* Standard F407 board uses an 8 MHz HSE crystal (not the cam board's
    * 25 MHz crystal).  8 / 8 * 144 / 2 = 72 MHz. */
   RCC_OscInitStruct.PLL.PLLM = 8;
+#endif
   RCC_OscInitStruct.PLL.PLLN = 144;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
   RCC_OscInitStruct.PLL.PLLQ = 3;
@@ -901,7 +947,9 @@ static void MX_CAN1_Init(void)
   hcan1.Init.TimeTriggeredMode = DISABLE;
   hcan1.Init.AutoBusOff = ENABLE;
   hcan1.Init.AutoWakeUp = DISABLE;
-  hcan1.Init.AutoRetransmission = ENABLE;
+  /* ROS telemetry must not retry forever when the peer cannot ACK. The
+   * transport observes single-shot results and backs off on failures. */
+  hcan1.Init.AutoRetransmission = DISABLE;
   hcan1.Init.ReceiveFifoLocked = DISABLE;
   hcan1.Init.TransmitFifoPriority = ENABLE;
   if (HAL_CAN_Init(&hcan1) != HAL_OK)
@@ -1328,7 +1376,9 @@ void StartMotorControlTask(void *argument)
       for (uint8_t issued = 0U; issued < MOTOR_CMD_QUEUE_LENGTH; issued++)
       {
         if (motor_process_next_command(&cmd, &cmd_result) == 0U) { break; }
-        CAN1_SendAck(cmd.seq, cmd.cmd, (cmd_result == HAL_OK) ? 0U : 1U);
+        /* Transport retains replies independently of telemetry and records
+         * overflow; a broken reply path must never block emergency stops. */
+        (void)CAN1_SendAck(cmd.seq, cmd.cmd, (cmd_result == HAL_OK) ? 0U : 1U);
         if ((cmd.source == MOTOR_CMD_SOURCE_LOCAL_BUTTON) && (cmd_result != HAL_OK))
         {
           CAN1_SendButtonEvent(ROS_BUTTON_EVENT_START,

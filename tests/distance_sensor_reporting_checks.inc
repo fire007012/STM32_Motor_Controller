@@ -1,4 +1,5 @@
-CAN_HandleTypeDef hcan1 = {0U}, hcan2 = {1U};
+static CAN_TypeDef can_registers[2];
+CAN_HandleTypeDef hcan1 = {0U, &can_registers[0]}, hcan2 = {1U, &can_registers[1]};
 uint32_t test_primask;
 static unsigned free_slots, sent_count, task_cycle, stop_count, range_updates;
 static CAN_TxFrame_t sent[512];
@@ -22,6 +23,7 @@ HAL_StatusTypeDef HAL_CAN_AddTxMessage(CAN_HandleTypeDef *bus,
     memcpy(sent[sent_count++].data, data, 8U);
     memcpy(last_can_data, data, 8U);
     *mailbox = CAN_TX_MAILBOX0;
+    bus->Instance->TSR = CAN_TSR_TXOK0;
     return HAL_OK;
 }
 HAL_StatusTypeDef motor_stop_all(void)
@@ -66,14 +68,14 @@ void osDelay(uint32_t ms)
         /* Initialization failure has consumed the driver's one-shot flags,
          * but both reports must survive a full transport queue. */
         assert(!sensors[3].updated && !sensors[3].diagnostic_pending);
-        assert(can_transport_get_failure_count(&hcan1) == 2U);
+        assert(can_transport_get_failure_count(&hcan1) == 1U);
         drain();
         assert(sent_count == 64U);
         fill_queue(63U);
         break;
     case 1U:
         /* Only one slot is available: diagnostic precedes periodic distance. */
-        assert(can_transport_get_failure_count(&hcan1) == 3U);
+        assert(can_transport_get_failure_count(&hcan1) == 1U);
         drain();
         assert(sent_count == 128U);
         expect_report(127U, 0x111U, 3U, 8U, 1U);
@@ -97,7 +99,7 @@ void osDelay(uint32_t ms)
         break;
     case 4U:
         assert(sensors[4].sample.status == DISTANCE_SENSOR_STATUS_TIMEOUT);
-        assert(can_transport_get_failure_count(&hcan1) == 2U);
+        assert(can_transport_get_failure_count(&hcan1) == 1U);
         drain();
         assert(sent_count == 193U);
         break;
@@ -154,7 +156,9 @@ void osDelay(uint32_t ms)
     case 11U:
         assert(stop_count == 0U);
         assert(sensors[DIST_SENSOR_REAR].sample.status == DISTANCE_SENSOR_STATUS_VALID);
-        assert(can_transport_get_failure_count(&hcan1) > 0U);
+        CAN_BusDiagnostics_t diag;
+        can_transport_get_diagnostics(&hcan1, &diag);
+        assert(diag.latest_backpressure > 0U);
         break;
     case 12U:
         /* A persistent rear obstacle must request another stop despite CAN congestion. */

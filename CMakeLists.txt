@@ -34,6 +34,25 @@ enable_language(C ASM)
 # Create an executable object type
 add_executable(${CMAKE_PROJECT_NAME})
 
+option(STM32_DIAGNOSTIC_HSI_CLOCK "Use internal HSI for CAN clock diagnosis" OFF)
+if(STM32_DIAGNOSTIC_HSI_CLOCK)
+    target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE STM32_DIAGNOSTIC_HSI_CLOCK=1)
+endif()
+
+option(STM32_DIAGNOSTIC_CAN_PROBE "Run isolated CAN1 loopback and single-shot probe" OFF)
+if(STM32_DIAGNOSTIC_CAN_PROBE)
+    target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE STM32_DIAGNOSTIC_CAN_PROBE=1)
+    target_sources(${CMAKE_PROJECT_NAME} PRIVATE Core/Src/can_probe.c)
+endif()
+
+option(STM32_DIAGNOSTIC_HSE_DIRECT "Measure HSE without PLL or CAN traffic" OFF)
+if(STM32_DIAGNOSTIC_HSE_DIRECT)
+    if(NOT STM32_DIAGNOSTIC_CAN_PROBE)
+        message(FATAL_ERROR "STM32_DIAGNOSTIC_HSE_DIRECT requires STM32_DIAGNOSTIC_CAN_PROBE")
+    endif()
+    target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE STM32_DIAGNOSTIC_HSE_DIRECT=1)
+endif()
+
 # Add STM32CubeMX generated sources
 add_subdirectory(cmake/stm32cubemx)
 

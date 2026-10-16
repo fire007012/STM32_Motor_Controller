@@ -1,0 +1,80 @@
+[WARN] [1792057252.043687196]: CAN heartbeat timeout: no STM32 reply on can0 ID=0x101 standard for 1.00 s. Check firmware protocol, bitrate and CAN1 filtering.
+[ERROR] [1792057252.043836471]: [can_interface] ESTOP latched: CAN receive timeout
+[WARN] [1792057252.643157728]: [can_interface] duplicate ESTOP ignored: CAN receive timeout
+[WARN] [1792057253.143221966]: CAN heartbeat timeout: no STM32 reply on can0 ID=0x101 standard for 1.00 s. Check firmware protocol, bitrate and CAN1 filtering.
+[WARN] [1792057253.743167929]: [can_interface] duplicate ESTOP ignored: CAN receive timeout
+[WARN] [1792057254.143373681]: CAN heartbeat timeout: no STM32 reply on can0 ID=0x101 standard for 1.00 s. Check firmware protocol, bitrate and CAN1 filtering.
+[WARN] [1792057254.843163068]: [can_interface] duplicate ESTOP ignored: CAN receive timeout
+[WARN] [1792057255.243058948]: CAN heartbeat timeout: no STM32 reply on can0 ID=0x101 standard for 1.00 s. Check firmware protocol, bitrate and CAN1 filtering.
+[WARN] [1792057255.943584582]: [can_interface] duplicate ESTOP ignored: CAN receive timeout
+[WARN] [1792057256.243127683]: CAN heartbeat timeout: no STM32 reply on can0 ID=0x101 standard for 1.00 s. Check firmware protocol, bitrate and CAN1 filtering.
+[WARN] [1792057257.160465274]: [can_interface] duplicate ESTOP ignored: CAN receive timeout
+[WARN] [1792057257.343118157]: CAN heartbeat timeout: no STM32 reply on can0 ID=0x101 standard for 1.00 s. Check firmware protocol, bitrate and CAN1 filtering.
+[WARN] [1792057258.243404996]: [can_interface] duplicate ESTOP ignored: CAN receive timeout
+[ERROR] [1792057258.343271719]: CAN TX failed on can0 ID=0x100: Resource temporarily unavailable; check link state, bitrate, STM32 ACK and bus wiring.
+[WARN] [1792057258.543189513]: CAN heartbeat timeout: no STM32 reply on can0 ID=0x101 standard for 1.00 s. Check firmware protocol, bitrate and CAN1 filtering.
+[WARN] [1792057259.343299918]: [can_interface] duplicate ESTOP ignored: CAN receive timeout
+[WARN] [1792057259.543370043]: CAN heartbeat timeout: no STM32 reply on can0 ID=0x101 standard for 1.00 s. Check firmware protocol, bitrate and CAN1 filtering.
+[WARN] [1792057260.543348882]: [can_interface] duplicate ESTOP ignored: CAN receive timeout
+[WARN] [1792057260.643318953]: CAN heartbeat timeout: no STM32 reply on can0 ID=0x101 standard for 1.00 s. Check firmware protocol, bitrate and CAN1 filtering.
+[WARN] [1792057261.643411539]: [can_interface] duplicate ESTOP ignored: CAN receive timeout
+[WARN] [1792057261.743178709]: CAN heartbeat timeout: no STM32 reply on can0 ID=0x101 standard for 1.00 s. Check firmware protocol, bitrate and CAN1 filtering.
+[WARN] [1792057262.743256652]: CAN heartbeat timeout: no STM32 reply on can0 ID=0x101 standard for 1.00 s. Check firmware protocol, bitrate and CAN1 filtering.
+[WARN] [1792057262.743671238]: [can_interface] duplicate ESTOP ignored: CAN receive timeout
+[WARN] [1792057263.842894833]: CAN heartbeat timeout: no STM32 reply on can0 ID=0x101 standard for 1.00 s. Check firmware protocol, bitrate and CAN1 filtering.
+[WARN] [1792057263.943217220]: [can_interface] duplicate ESTOP ignored: CAN receive timeout
+[WARN] [1792057264.843021790]: CAN heartbeat timeout: no STM32 reply on can0 ID=0x101 standard for 1.00 s. Check firmware protocol, bitrate and CAN1 filtering.
+[WARN] [1792057265.143146663]: [can_interface] duplicate ESTOP ignored: CAN receive timeout
+[ERROR] [1792057265.243004639]: CAN TX failed on can0 ID=0x100: Resource temporarily unavailable; check link state, bitrate, STM32 ACK and bus wiring.
+[WARN] [1792057265.843136350]: CAN heartbeat timeout: no STM32 reply on can0 ID=0x101 standard for 1.00 s. Check firmware protocol, bitrate and CAN1 filtering.
+[WARN] [1792057266.343100891]: [can_interface] duplicate ESTOP ignored: CAN receive timeout
+[WARN] [1792057266.942878256]: CAN heartbeat timeout: no STM32 reply on can0 ID=0x101 standard for 1.00 s. Check firmware protocol, bitrate and CAN1 filtering.
+[WARN] [1792057267.343378333]: [can_interface] duplicate ESTOP ignored: CAN receive timeout
+[WARN] [1792057267.943229582]: CAN heartbeat timeout: no STM32 reply on can0 ID=0x101 standard for 1.00 s. Check firmware protocol, bitrate and CAN1 filtering.
+[WARN] [1792057268.542924293]: [can_interface] duplicate ESTOP ignored: CAN receive timeout
+[WARN] [1792057269.043175206]: CAN heartbeat timeout: no STM32 reply on can0 ID=0x101 standard for 1.00 s. Check firmware protocol, bitrate and CAN1 filtering.
+[WARN] [1792057269.643339778]: [can_interface] duplicate ESTOP ignored: CAN receive timeout
+[WARN] [1792057270.043178700]: CAN heartbeat timeout: no STM32 reply on can0 ID=0x101 standard for 1.00 s. Check firmware protocol, bitrate and CAN1 filtering.
+[INFO] [1792057251.004599121]: STM32 custom protocol: device=can0 TX=0x100 RX=0x101 standard frames. This is NOT native Y42 passthrough; CAN bitrate must match STM32 CAN1.
+[INFO] [1792057251.014597663]: Logical wheel 0 -> STM32 index 1 / CAN2 address 2, sign=1
+[INFO] [1792057251.014640632]: Logical wheel 1 -> STM32 index 0 / CAN2 address 1, sign=1
+[INFO] [1792057251.014647285]: Logical wheel 2 -> STM32 index 3 / CAN2 address 4, sign=1
+[INFO] [1792057251.014650681]: Logical wheel 3 -> STM32 index 2 / CAN2 address 3, sign=1
+[INFO] [1792057251.042715699]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792057251.042770860]: [can_interface] motion start state=IDLE
+[INFO] [1792057251.093356211]: First CAN TX queued on can0: ID=0x200 extended DLC=2. Use STM32 RX/feedback to confirm delivery.
+[INFO] [1792057252.043781079]: [can_interface] motion start state=HEARTBEAT_LOST
+[INFO] [1792057252.043873749]: [can_interface] motion start state=ESTOP_LATCHED
+[INFO] [1792057252.643102336]: [can_interface] motion start state=ESTOP_LATCHED
+[INFO] [1792057253.143287707]: [can_interface] motion start state=ESTOP_LATCHED
+[INFO] [1792057253.742975295]: [can_interface] motion start state=ESTOP_LATCHED
+[INFO] [1792057254.243542089]: [can_interface] motion start state=ESTOP_LATCHED
+[INFO] [1792057254.843101145]: [can_interface] motion start state=ESTOP_LATCHED
+[INFO] [1792057255.343492268]: [can_interface] motion start state=ESTOP_LATCHED
+[INFO] [1792057255.943405931]: [can_interface] motion start state=ESTOP_LATCHED
+[INFO] [1792057256.542967657]: [can_interface] motion start state=ESTOP_LATCHED
+[INFO] [1792057257.160411415]: [can_interface] motion start state=ESTOP_LATCHED
+[INFO] [1792057257.743225378]: [can_interface] motion start state=ESTOP_LATCHED
+[INFO] [1792057258.243317647]: [can_interface] motion start state=ESTOP_LATCHED
+[INFO] [1792057258.442935848]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792057258.843068945]: [can_interface] motion start state=ESTOP_LATCHED
+[INFO] [1792057259.343244597]: [can_interface] motion start state=ESTOP_LATCHED
+[INFO] [1792057259.943300510]: [can_interface] motion start state=ESTOP_LATCHED
+[INFO] [1792057260.543295935]: [can_interface] motion start state=ESTOP_LATCHED
+[INFO] [1792057261.043449836]: [can_interface] motion start state=ESTOP_LATCHED
+[INFO] [1792057261.643288624]: [can_interface] motion start state=ESTOP_LATCHED
+[INFO] [1792057262.243193211]: [can_interface] motion start state=ESTOP_LATCHED
+[INFO] [1792057262.743435678]: [can_interface] motion start state=ESTOP_LATCHED
+[INFO] [1792057263.343113794]: [can_interface] motion start state=ESTOP_LATCHED
+[INFO] [1792057263.943152192]: [can_interface] motion start state=ESTOP_LATCHED
+[INFO] [1792057264.542931653]: [can_interface] motion start state=ESTOP_LATCHED
+[INFO] [1792057265.143084029]: [can_interface] motion start state=ESTOP_LATCHED
+[INFO] [1792057265.343386794]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792057265.743437487]: [can_interface] motion start state=ESTOP_LATCHED
+[INFO] [1792057266.342936121]: [can_interface] motion start state=ESTOP_LATCHED
+[INFO] [1792057266.843026943]: [can_interface] motion start state=ESTOP_LATCHED
+[INFO] [1792057267.343320568]: [can_interface] motion start state=ESTOP_LATCHED
+[INFO] [1792057267.943311050]: [can_interface] motion start state=ESTOP_LATCHED
+[INFO] [1792057268.542875204]: [can_interface] motion start state=ESTOP_LATCHED
+[INFO] [1792057269.043305161]: [can_interface] motion start state=ESTOP_LATCHED
+[INFO] [1792057269.643080055]: [can_interface] motion start state=ESTOP_LATCHED

@@ -1,0 +1,20 @@
+[WARN] [1792062249.130935875]: Waiting for /motor_velocity_cmd; no speed frames sent. Start planner + cmd_vel_mux or the custom-protocol keyboard test.
+[ERROR] [1792062369.276817217]: [can_interface] ESTOP latched: software estop
+[INFO] [1792062248.854280827]: STM32 custom protocol: device=can0 TX=0x100 RX=0x101 standard frames. This is NOT native Y42 passthrough; CAN bitrate must match STM32 CAN1.
+[INFO] [1792062248.857788765]: Logical wheel 0 -> STM32 index 1 / CAN2 address 2, sign=1
+[INFO] [1792062248.857801176]: Logical wheel 1 -> STM32 index 0 / CAN2 address 1, sign=1
+[INFO] [1792062248.857808042]: Logical wheel 2 -> STM32 index 3 / CAN2 address 4, sign=1
+[INFO] [1792062248.857818591]: Logical wheel 3 -> STM32 index 2 / CAN2 address 3, sign=1
+[INFO] [1792062248.870217331]: SocketCAN bound on can0; binding/queued TX does not prove STM32 reception.
+[INFO] [1792062248.870265993]: [can_interface] motion start state=IDLE
+[INFO] [1792062248.875675177]: First CAN RX on can0: ID=0x101 standard DLC=8; configured STM32 RX=0x101 standard.
+[INFO] [1792062248.920429802]: First CAN TX queued on can0: ID=0x200 extended DLC=2. Use STM32 RX/feedback to confirm delivery.
+[INFO] [1792062249.190834453]: [can_interface] synchronized speed cache prepared; state=CACHE_READY
+[INFO] [1792062249.190877221]: [can_interface] motion start state=CACHE_READY
+[INFO] [1792062369.190817874]: [can_interface] synchronized speed cache prepared; state=CACHE_READY
+[INFO] [1792062369.190905216]: [can_interface] motion start state=CACHE_READY
+[INFO] [1792062369.230667664]: [can_interface] synchronized speed cache prepared; state=CACHE_READY
+[INFO] [1792062369.230740444]: [can_interface] motion start state=CACHE_READY
+[INFO] [1792062369.250477101]: [can_interface] synchronized speed cache prepared; state=CACHE_READY
+[INFO] [1792062369.250521538]: [can_interface] motion start state=CACHE_READY
+[INFO] [1792062369.276937709]: [can_interface] motion start state=ESTOP_LATCHED

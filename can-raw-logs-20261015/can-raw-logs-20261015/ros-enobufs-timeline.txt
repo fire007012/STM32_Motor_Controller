@@ -1,0 +1,67 @@
+Derived index only: timestamps converted to Asia/Shanghai; raw lines and source line numbers follow.
+
+2026-10-15T17:36:21.459811+08:00 /tmp/chassis-link-check-20261015/log/e0588ec4-c87b-11f1-bf40-5bd33f675fa9/rosout.log:4
+1792056981.459810854 ERROR /can_interface_node [/home/fire/ros_ws/src/can_motor_interface/src/can_interface_node.cpp:222(CanInterfaceNode::sendCanFrame)] [topics: /rosout, /motor_state, /motor_status_flags, /emergency_stop, /robot_state, /robot_display, /stop_all, /chassis_lock, /fixed_route/hold, /move_base/cancel, /can_rx, /motor_link_ready] CAN TX failed on can0 ID=0x300: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
+
+2026-10-15T17:36:22.560151+08:00 /tmp/chassis-link-check-20261015/log/e0588ec4-c87b-11f1-bf40-5bd33f675fa9/rosout.log:19
+1792056982.560150664 ERROR /can_interface_node [/home/fire/ros_ws/src/can_motor_interface/src/can_interface_node.cpp:222(CanInterfaceNode::sendCanFrame)] [topics: /rosout, /motor_state, /motor_status_flags, /emergency_stop, /robot_state, /robot_display, /stop_all, /chassis_lock, /fixed_route/hold, /move_base/cancel, /can_rx, /motor_link_ready] CAN TX failed on can0 ID=0x100: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
+
+2026-10-15T17:36:23.659597+08:00 /tmp/chassis-link-check-20261015/log/e0588ec4-c87b-11f1-bf40-5bd33f675fa9/rosout.log:32
+1792056983.659597354 ERROR /can_interface_node [/home/fire/ros_ws/src/can_motor_interface/src/can_interface_node.cpp:222(CanInterfaceNode::sendCanFrame)] [topics: /rosout, /motor_state, /motor_status_flags, /emergency_stop, /robot_state, /robot_display, /stop_all, /chassis_lock, /fixed_route/hold, /move_base/cancel, /can_rx, /motor_link_ready] CAN TX failed on can0 ID=0x400: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
+
+2026-10-15T17:36:24.759476+08:00 /tmp/chassis-link-check-20261015/log/e0588ec4-c87b-11f1-bf40-5bd33f675fa9/rosout.log:45
+1792056984.759476334 ERROR /can_interface_node [/home/fire/ros_ws/src/can_motor_interface/src/can_interface_node.cpp:222(CanInterfaceNode::sendCanFrame)] [topics: /rosout, /motor_state, /motor_status_flags, /emergency_stop, /robot_state, /robot_display, /stop_all, /chassis_lock, /fixed_route/hold, /move_base/cancel, /can_rx, /motor_link_ready] CAN TX failed on can0 ID=0x200: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
+
+2026-10-15T17:36:25.759730+08:00 /tmp/chassis-link-check-20261015/log/e0588ec4-c87b-11f1-bf40-5bd33f675fa9/rosout.log:57
+1792056985.759729592 ERROR /can_interface_node [/home/fire/ros_ws/src/can_motor_interface/src/can_interface_node.cpp:222(CanInterfaceNode::sendCanFrame)] [topics: /rosout, /motor_state, /motor_status_flags, /emergency_stop, /robot_state, /robot_display, /stop_all, /chassis_lock, /fixed_route/hold, /move_base/cancel, /can_rx, /motor_link_ready] CAN TX failed on can0 ID=0x100: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
+
+2026-10-15T17:36:26.859384+08:00 /tmp/chassis-link-check-20261015/log/e0588ec4-c87b-11f1-bf40-5bd33f675fa9/rosout.log:70
+1792056986.859384115 ERROR /can_interface_node [/home/fire/ros_ws/src/can_motor_interface/src/can_interface_node.cpp:222(CanInterfaceNode::sendCanFrame)] [topics: /rosout, /motor_state, /motor_status_flags, /emergency_stop, /robot_state, /robot_display, /stop_all, /chassis_lock, /fixed_route/hold, /move_base/cancel, /can_rx, /motor_link_ready] CAN TX failed on can0 ID=0x400: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
+
+2026-10-15T17:36:27.859561+08:00 /tmp/chassis-link-check-20261015/log/e0588ec4-c87b-11f1-bf40-5bd33f675fa9/rosout.log:82
+1792056987.859560936 ERROR /can_interface_node [/home/fire/ros_ws/src/can_motor_interface/src/can_interface_node.cpp:222(CanInterfaceNode::sendCanFrame)] [topics: /rosout, /motor_state, /motor_status_flags, /emergency_stop, /robot_state, /robot_display, /stop_all, /chassis_lock, /fixed_route/hold, /move_base/cancel, /can_rx, /motor_link_ready] CAN TX failed on can0 ID=0x300: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
+
+2026-10-15T17:36:28.859833+08:00 /tmp/chassis-link-check-20261015/log/e0588ec4-c87b-11f1-bf40-5bd33f675fa9/rosout.log:94
+1792056988.859832648 ERROR /can_interface_node [/home/fire/ros_ws/src/can_motor_interface/src/can_interface_node.cpp:222(CanInterfaceNode::sendCanFrame)] [topics: /rosout, /motor_state, /motor_status_flags, /emergency_stop, /robot_state, /robot_display, /stop_all, /chassis_lock, /fixed_route/hold, /move_base/cancel, /can_rx, /motor_link_ready] CAN TX failed on can0 ID=0x200: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
+
+2026-10-15T17:36:29.959403+08:00 /tmp/chassis-link-check-20261015/log/e0588ec4-c87b-11f1-bf40-5bd33f675fa9/rosout.log:107
+1792056989.959402831 ERROR /can_interface_node [/home/fire/ros_ws/src/can_motor_interface/src/can_interface_node.cpp:222(CanInterfaceNode::sendCanFrame)] [topics: /rosout, /motor_state, /motor_status_flags, /emergency_stop, /robot_state, /robot_display, /stop_all, /chassis_lock, /fixed_route/hold, /move_base/cancel, /can_rx, /motor_link_ready] CAN TX failed on can0 ID=0x400: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
+
+2026-10-15T17:36:30.959626+08:00 /tmp/chassis-link-check-20261015/log/e0588ec4-c87b-11f1-bf40-5bd33f675fa9/rosout.log:119
+1792056990.959626324 ERROR /can_interface_node [/home/fire/ros_ws/src/can_motor_interface/src/can_interface_node.cpp:222(CanInterfaceNode::sendCanFrame)] [topics: /rosout, /motor_state, /motor_status_flags, /emergency_stop, /robot_state, /robot_display, /stop_all, /chassis_lock, /fixed_route/hold, /move_base/cancel, /can_rx, /motor_link_ready] CAN TX failed on can0 ID=0x300: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
+
+2026-10-15T17:36:32.059441+08:00 /tmp/chassis-link-check-20261015/log/e0588ec4-c87b-11f1-bf40-5bd33f675fa9/rosout.log:132
+1792056992.059441233 ERROR /can_interface_node [/home/fire/ros_ws/src/can_motor_interface/src/can_interface_node.cpp:222(CanInterfaceNode::sendCanFrame)] [topics: /rosout, /motor_state, /motor_status_flags, /emergency_stop, /robot_state, /robot_display, /stop_all, /chassis_lock, /fixed_route/hold, /move_base/cancel, /can_rx, /motor_link_ready] CAN TX failed on can0 ID=0x200: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
+
+2026-10-15T17:36:33.159485+08:00 /tmp/chassis-link-check-20261015/log/e0588ec4-c87b-11f1-bf40-5bd33f675fa9/rosout.log:145
+1792056993.159485278 ERROR /can_interface_node [/home/fire/ros_ws/src/can_motor_interface/src/can_interface_node.cpp:222(CanInterfaceNode::sendCanFrame)] [topics: /rosout, /motor_state, /motor_status_flags, /emergency_stop, /robot_state, /robot_display, /stop_all, /chassis_lock, /fixed_route/hold, /move_base/cancel, /can_rx, /motor_link_ready] CAN TX failed on can0 ID=0x400: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
+
+2026-10-15T17:36:34.159817+08:00 /tmp/chassis-link-check-20261015/log/e0588ec4-c87b-11f1-bf40-5bd33f675fa9/rosout.log:157
+1792056994.159816706 ERROR /can_interface_node [/home/fire/ros_ws/src/can_motor_interface/src/can_interface_node.cpp:222(CanInterfaceNode::sendCanFrame)] [topics: /rosout, /motor_state, /motor_status_flags, /emergency_stop, /robot_state, /robot_display, /stop_all, /chassis_lock, /fixed_route/hold, /move_base/cancel, /can_rx, /motor_link_ready] CAN TX failed on can0 ID=0x300: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
+
+2026-10-15T17:36:35.259385+08:00 /tmp/chassis-link-check-20261015/log/e0588ec4-c87b-11f1-bf40-5bd33f675fa9/rosout.log:170
+1792056995.259384604 ERROR /can_interface_node [/home/fire/ros_ws/src/can_motor_interface/src/can_interface_node.cpp:222(CanInterfaceNode::sendCanFrame)] [topics: /rosout, /motor_state, /motor_status_flags, /emergency_stop, /robot_state, /robot_display, /stop_all, /chassis_lock, /fixed_route/hold, /move_base/cancel, /can_rx, /motor_link_ready] CAN TX failed on can0 ID=0x200: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
+
+2026-10-15T18:49:16.666905+08:00 /tmp/chassis_can_check_logs/107352ce-c886-11f1-bf40-5bd33f675fa9/rosout.log:4
+1792061356.666904581 ERROR /can_interface_node [/home/fire/ros_ws/src/can_motor_interface/src/can_interface_node.cpp:217(CanInterfaceNode::sendCanFrame)] [topics: /rosout, /motor_state, /motor_status_flags, /emergency_stop, /robot_state, /robot_display, /stop_all, /chassis_lock, /fixed_route/hold, /move_base/cancel, /can_rx, /motor_link_ready] CAN TX failed on can0 ID=0x300: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
+
+2026-10-15T18:49:17.666918+08:00 /tmp/chassis_can_check_logs/107352ce-c886-11f1-bf40-5bd33f675fa9/rosout.log:17
+1792061357.666918111 ERROR /can_interface_node [/home/fire/ros_ws/src/can_motor_interface/src/can_interface_node.cpp:217(CanInterfaceNode::sendCanFrame)] [topics: /rosout, /motor_state, /motor_status_flags, /emergency_stop, /robot_state, /robot_display, /stop_all, /chassis_lock, /fixed_route/hold, /move_base/cancel, /can_rx, /motor_link_ready] CAN TX failed on can0 ID=0x200: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
+
+2026-10-15T18:49:18.766748+08:00 /tmp/chassis_can_check_logs/107352ce-c886-11f1-bf40-5bd33f675fa9/rosout.log:30
+1792061358.766748385 ERROR /can_interface_node [/home/fire/ros_ws/src/can_motor_interface/src/can_interface_node.cpp:217(CanInterfaceNode::sendCanFrame)] [topics: /rosout, /motor_state, /motor_status_flags, /emergency_stop, /robot_state, /robot_display, /stop_all, /chassis_lock, /fixed_route/hold, /move_base/cancel, /can_rx, /motor_link_ready] CAN TX failed on can0 ID=0x400: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
+
+2026-10-15T18:49:19.866887+08:00 /tmp/chassis_can_check_logs/107352ce-c886-11f1-bf40-5bd33f675fa9/rosout.log:43
+1792061359.866887418 ERROR /can_interface_node [/home/fire/ros_ws/src/can_motor_interface/src/can_interface_node.cpp:217(CanInterfaceNode::sendCanFrame)] [topics: /rosout, /motor_state, /motor_status_flags, /emergency_stop, /robot_state, /robot_display, /stop_all, /chassis_lock, /fixed_route/hold, /move_base/cancel, /can_rx, /motor_link_ready] CAN TX failed on can0 ID=0x300: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
+
+2026-10-15T18:49:20.966585+08:00 /tmp/chassis_can_check_logs/107352ce-c886-11f1-bf40-5bd33f675fa9/rosout.log:56
+1792061360.966585365 ERROR /can_interface_node [/home/fire/ros_ws/src/can_motor_interface/src/can_interface_node.cpp:217(CanInterfaceNode::sendCanFrame)] [topics: /rosout, /motor_state, /motor_status_flags, /emergency_stop, /robot_state, /robot_display, /stop_all, /chassis_lock, /fixed_route/hold, /move_base/cancel, /can_rx, /motor_link_ready] CAN TX failed on can0 ID=0x100: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
+
+2026-10-15T18:49:21.967070+08:00 /tmp/chassis_can_check_logs/107352ce-c886-11f1-bf40-5bd33f675fa9/rosout.log:68
+1792061361.967069823 ERROR /can_interface_node [/home/fire/ros_ws/src/can_motor_interface/src/can_interface_node.cpp:217(CanInterfaceNode::sendCanFrame)] [topics: /rosout, /motor_state, /motor_status_flags, /emergency_stop, /robot_state, /robot_display, /stop_all, /chassis_lock, /fixed_route/hold, /move_base/cancel, /can_rx, /motor_link_ready] CAN TX failed on can0 ID=0x400: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
+
+2026-10-15T18:49:23.066868+08:00 /tmp/chassis_can_check_logs/107352ce-c886-11f1-bf40-5bd33f675fa9/rosout.log:81
+1792061363.066867665 ERROR /can_interface_node [/home/fire/ros_ws/src/can_motor_interface/src/can_interface_node.cpp:217(CanInterfaceNode::sendCanFrame)] [topics: /rosout, /motor_state, /motor_status_flags, /emergency_stop, /robot_state, /robot_display, /stop_all, /chassis_lock, /fixed_route/hold, /move_base/cancel, /can_rx, /motor_link_ready] CAN TX failed on can0 ID=0x300: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
+
+2026-10-15T18:49:24.166817+08:00 /tmp/chassis_can_check_logs/107352ce-c886-11f1-bf40-5bd33f675fa9/rosout.log:94
+1792061364.166816879 ERROR /can_interface_node [/home/fire/ros_ws/src/can_motor_interface/src/can_interface_node.cpp:217(CanInterfaceNode::sendCanFrame)] [topics: /rosout, /motor_state, /motor_status_flags, /emergency_stop, /robot_state, /robot_display, /stop_all, /chassis_lock, /fixed_route/hold, /move_base/cancel, /can_rx, /motor_link_ready] CAN TX failed on can0 ID=0x100: No buffer space available; check link state, bitrate, STM32 ACK and bus wiring.
