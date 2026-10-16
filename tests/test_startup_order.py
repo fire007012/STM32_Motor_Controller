@@ -59,14 +59,15 @@ class StartupOrder(unittest.TestCase):
         self.assertRegex(config,r'ARM_SERVO_WK_HOLD_MS\s+1000U')
         self.assertRegex(config,r'ARM_SERVO_WK_SERVO_ANGLE\s+0')
         self.assertRegex(config,r'ARM_SERVO_WK_SERVO_RETURN_ANGLE\s+180')
-        self.assertRegex(config,r'ARM_SERVO_WK_SERVO_HOLD_MS\s+3000U')
-        self.assertRegex(config,r'ARM_SERVO_WK_SERVO_RETURN_MS\s+1000U')
+        self.assertRegex(config,r'ARM_SERVO_WK_SERVO_HOLD_MS\s+500U')
+        self.assertRegex(config,r'ARM_SERVO_WK_SERVO_RETURN_MS\s+500U')
         body=source[source.index('static void WkupDemo_Service(void)\n{'):source.index('/* USER CODE END 4 */')]
         steps=['case WKUP_DEMO_ARM_FORWARD:','case WKUP_DEMO_SERVO_OPEN:','case WKUP_DEMO_SERVO_CLOSE:','case WKUP_DEMO_ARM_RETURN:','ArmServo_DemoEnd()']
         positions=[body.index(step) for step in steps[:-1]]+[body.rindex(steps[-1])]
         self.assertEqual(positions,sorted(positions))
         self.assertNotIn('HAL_Delay(',body)
         self.assertNotIn('osDelay(',body)
+        self.assertIn('>= ARM_SERVO_WK_HOLD_MS)',body)
 
     def test_hal_delay_sensor_init_precedes_rtos_objects(self):
         main = main_body()

@@ -3,7 +3,7 @@
 
 /* K0/K1 selection: 1=DS3230MG, 0=SG90. Both PWM and CAN drivers stay
  * initialized in either mode. Remote arm ownership blocks local arm keys. */
-#define ARM_SERVO_KEY_TEST_ENABLE       0U //测试sg90 0为sg90
+#define ARM_SERVO_KEY_TEST_ENABLE       1U //测试sg90 0为sg90
 #define ARM_SERVO_CHANNEL_COUNT         4U
 #define ARM_SERVO_ACTIVE_COUNT          3U
 #define ARM_SERVO_STEP_DEG              5  //每次转多少度
@@ -17,8 +17,8 @@
 #define ARM_SERVO_WK_HOLD_MS            1000U
 #define ARM_SERVO_WK_SERVO_ANGLE         0
 #define ARM_SERVO_WK_SERVO_RETURN_ANGLE  180
-#define ARM_SERVO_WK_SERVO_HOLD_MS       3000U
-#define ARM_SERVO_WK_SERVO_RETURN_MS     1000U
+#define ARM_SERVO_WK_SERVO_HOLD_MS       500U
+#define ARM_SERVO_WK_SERVO_RETURN_MS     500U
 
 /* Confirm your DS3230MG's 180/270-degree variant before powered testing.
  * Logical zero means the calibrated pulse below, not the shaft's endpoint.
@@ -34,7 +34,7 @@
 #define ARM_SERVO_1_MIN_PULSE_US         500U
 #define ARM_SERVO_1_MAX_PULSE_US         2500U
 #define ARM_SERVO_1_ZERO_PULSE_US        1500U
-#define ARM_SERVO_1_DIRECTION            1
+#define ARM_SERVO_1_DIRECTION            (-1)
 #define ARM_SERVO_1_MIN_ANGLE_DEG       (-80)
 #define ARM_SERVO_1_MAX_ANGLE_DEG        80
 
@@ -42,7 +42,7 @@
 #define ARM_SERVO_2_MIN_PULSE_US         500U
 #define ARM_SERVO_2_MAX_PULSE_US         2500U
 #define ARM_SERVO_2_ZERO_PULSE_US        1500U
-#define ARM_SERVO_2_DIRECTION           (-1)
+#define ARM_SERVO_2_DIRECTION            1
 #define ARM_SERVO_2_MIN_ANGLE_DEG       (-80)
 #define ARM_SERVO_2_MAX_ANGLE_DEG        80
 
